@@ -6874,7 +6874,10 @@ async function sha256Hex(s) {
 const Account = {
   uid: '', email: '', idToken: '', refreshToken: '', expires: 0, profile: null, idle: null,
 
-  get apiKey() { return Config.get('fbKey', '') || FIREBASE_API_KEY; },
+  /* The file wins over anything stored on the device. Otherwise a key typed
+     wrongly on one phone stays cached there forever and quietly overrides the
+     correct one, with no UI to correct it. */
+  get apiKey() { return FIREBASE_API_KEY || Config.get('fbKey', ''); },
   get projectId() { return Config.get('fsProject', '') || FIRESTORE_PROJECT_ID; },
   get signedIn() { return !!this.uid && !!this.refreshToken; },
   get isAdmin() { return !!this.profile && this.profile.role === 'admin'; },
