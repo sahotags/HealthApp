@@ -278,6 +278,54 @@ ul.pred li{margin-bottom:5px}
   .detail-in{grid-template-columns:1fr}
   .ribbon-wrap svg{height:130px}
 }
+/* ---------- motion (added) ----------
+   All of this is disabled wholesale by the prefers-reduced-motion rule further
+   down, so nothing here fights an accessibility setting. */
+@keyframes dl-rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+@keyframes dl-pop  { 0% { transform:scale(.97); } 60% { transform:scale(1.012); } 100% { transform:scale(1); } }
+@keyframes dl-ok   { 0% { background:var(--teal-soft); } 100% { background:transparent; } }
+
+/* view changes settle in rather than snapping */
+.view.active { animation: dl-rise .26s cubic-bezier(.2,.7,.3,1) both; }
+
+/* form fields arrive in sequence, so the eye follows the order of the form */
+.view.active .f,
+.view.active .card,
+.view.active .panel { animation: dl-rise .3s cubic-bezier(.2,.7,.3,1) both; }
+.view.active .f:nth-child(1),.view.active .card:nth-child(1){animation-delay:.02s}
+.view.active .f:nth-child(2),.view.active .card:nth-child(2){animation-delay:.05s}
+.view.active .f:nth-child(3),.view.active .card:nth-child(3){animation-delay:.08s}
+.view.active .f:nth-child(4),.view.active .card:nth-child(4){animation-delay:.11s}
+.view.active .f:nth-child(5),.view.active .card:nth-child(5){animation-delay:.14s}
+.view.active .f:nth-child(6),.view.active .card:nth-child(6){animation-delay:.17s}
+.view.active .f:nth-child(n+7),.view.active .card:nth-child(n+7){animation-delay:.2s}
+
+/* inputs lift very slightly on focus, so the active field is obvious on mobile */
+input, select, textarea { transition: border-color .15s, box-shadow .15s, transform .12s; }
+input:focus, select:focus, textarea:focus { transform: translateY(-1px); }
+
+/* buttons acknowledge the press — matters most on touch, where there is no hover */
+button { transition: background .14s, border-color .14s, transform .08s, opacity .14s; }
+button:active:not(:disabled) { transform: scale(.975); }
+button.primary:not(:disabled):hover { transform: translateY(-1px); }
+
+/* a saved field flashes once instead of changing silently */
+.saved-flash { animation: dl-ok .9s ease-out; }
+
+/* rows and list items stream in */
+@keyframes dl-row { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+tbody tr { animation: dl-row .22s ease-out both; }
+tbody tr:nth-child(1){animation-delay:.01s} tbody tr:nth-child(2){animation-delay:.02s}
+tbody tr:nth-child(3){animation-delay:.03s} tbody tr:nth-child(4){animation-delay:.04s}
+tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-delay:.06s}
+
+/* the gate panes cross-fade instead of jumping */
+#gate .box > div { animation: dl-rise .24s cubic-bezier(.2,.7,.3,1) both; }
+#gate button.go:active { transform: scale(.985); }
+
+/* the briefing arrives as a block; ease it in */
+#brief, .brief-body { animation: dl-rise .3s ease-out both; }
+
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
 }
@@ -2409,7 +2457,7 @@ function avoidHits(list) {
 const ROLE_DEFAULT = {
   title: 'Senior Integrative Health Director',
   brief: 'Clinical, data-driven and predictive. Respect autonomy: give risk–benefit assessments, register an objection once, do not repeat it. Frame cravings as physiological signals rather than failures of will. Surface patterns across three days without being asked.',
-  waistTarget: 32.0,
+  waistTarget: null,
   proteinPerKg: 1.6,
   longWalkKm: 8,
   shortSleepHrs: 6.5,
@@ -2419,16 +2467,18 @@ const ROLE_DEFAULT = {
   lunchGapHours: 7,
   highSugarGrams: 60,
   magnesiumMandatory: { training: true, highSugar: true, poorSleep: true, longWalk: true },
-  /* the named stop signal — the client's own term is kept configurable */
-  signalName: 'Akkrallan',
-  signalPrimaryTrigger: 'Concentrated sugar–dairy matrix in the evening, especially dairy-based frozen desserts after dinner.',
-  signalSecondaryTrigger: 'Concentrated tannin–caffeine–sugar matrix (masala chai, multiple boils, unrefined sugar, dairy), especially without morning coffee priming.',
-  constraints: [
-    { name: 'Cervical spine C4–C6 radiculopathy', screen: 'cervical', rule: 'High-load low-rep pressing is contraindicated. Head neutral and supported; no cervical extension under load. Tempo hypertrophy at moderate load is validated.', lowRepMax: 3, minSetsFlag: 4 },
-    { name: 'Right knee, three prior surgeries', screen: 'knee', rule: 'Tiredness is acceptable; sharpness is a stop signal. Watch the SI joint across consecutive lower-body days.', consecutiveDaysFlag: 2 },
-    { name: 'Subclinical hypothyroidism', screen: 'thyroid', rule: 'Severe or prolonged caloric deficits are contraindicated. Moderate sustained deficit with adequate protein is the validated approach.', minKcal: 1200 }
-  ],
-  hierarchy: ['Stop-signal prevention', 'C4–C6 nerve root safety', 'Knee joint integrity', 'Thyroid protection', 'Body composition', 'Training performance', 'Dietary flexibility'],
+  /* Neutral for everyone. Each person names their own tracked symptom and
+     triggers under Profile; nothing personal is inherited from anyone else. */
+  signalName: 'Flare',
+  signalPrimaryTrigger: '',
+  signalSecondaryTrigger: '',
+  /* EMPTY BY DEFAULT. These previously carried one person's diagnoses —
+     cervical radiculopathy, knee surgeries, a thyroid calorie floor — and every
+     new account silently inherited them, so a teenager would have been advised
+     around someone else's spine. Each person now enters their own under
+     Profile, or has none. */
+  constraints: [],
+  hierarchy: ['Safety and injury avoidance', 'Consistency', 'Body composition', 'Training performance', 'Dietary flexibility'],
   disclaimer: 'Informational advisory built from your own documented protocol. Not medical treatment, and not a substitute for your GP or specialists.'
 };
 
@@ -2436,7 +2486,7 @@ function role() {
   const r = Repo.doc.role || {};
   const out = JSON.parse(JSON.stringify(ROLE_DEFAULT));
   Object.keys(r).forEach(k => { if (r[k] !== undefined && r[k] !== null) out[k] = r[k]; });
-  if (!Array.isArray(out.constraints)) out.constraints = ROLE_DEFAULT.constraints;
+  if (!Array.isArray(out.constraints)) out.constraints = [];
   if (!Array.isArray(out.hierarchy)) out.hierarchy = ROLE_DEFAULT.hierarchy;
   if (!out.magnesiumMandatory) out.magnesiumMandatory = ROLE_DEFAULT.magnesiumMandatory;
   return out;
@@ -3250,9 +3300,10 @@ function aiSystemPrompt() {
     'DECISION HIERARCHY when constraints conflict, highest first:',
     r.hierarchy.map((x, i) => (i + 1) + '. ' + x).join('\n'),
     '',
-    'VALIDATED MODELS the client has derived from this data — treat as operational rules:',
-    '- Primary trigger for ' + r.signalName + ': ' + r.signalPrimaryTrigger,
-    '- Secondary trigger: ' + r.signalSecondaryTrigger,
+    (r.signalPrimaryTrigger || r.signalSecondaryTrigger)
+      ? 'VALIDATED MODELS the client has derived from this data — treat as operational rules:' : '',
+    r.signalPrimaryTrigger ? '- Primary trigger for ' + r.signalName + ': ' + r.signalPrimaryTrigger : '',
+    r.signalSecondaryTrigger ? '- Secondary trigger: ' + r.signalSecondaryTrigger : '',
     '- Timing dominates: sugar before ' + r.eveningCutoffHour + ':00 with clearance before sleep is substantially safer than the same food later.',
     '- Lunch Tolerance: a midday indulgence is tolerable given a ' + r.lunchGapHours + '+ hour gap and a protein-forward dinner with nothing sweet compounding it.',
     '- Sweet streak: ' + r.sweetStreakThreshold + '–5 consecutive days of sweet items erodes decision boundaries. One deliberate zero-sugar day interrupts it.',
@@ -3268,11 +3319,35 @@ function aiSystemPrompt() {
     '- Frame cravings and lapses as signals to understand, never as failures of will.',
     '- You are not their doctor. Flag anything that warrants a GP or specialist rather than working around it.',
     '',
+    'TWO THINGS TO WORK OUT BEFORE YOU WRITE',
+    '',
+    '1. TRAINING. If no session is logged for today, prescribe one. Base it on:',
+    '   - the stated goals, if any',
+    '   - what was trained on the recent days shown, so muscle groups get a rest and the week stays balanced',
+    '   - the constraint profile above — every movement must pass it',
+    '   Give specific movements with sets, reps and a load cue anchored to what they have actually lifted before.',
+    '   If recent days show heavy or consecutive training, or poor sleep, prescribing rest or mobility IS the answer — say so and why.',
+    '   If a session is already logged, do not prescribe another. Comment on the one they did.',
+    '',
+    '2. REMAINING FOOD FOR TODAY. Work out what is left to eat.',
+    '   - Take the calorie and protein targets from the goals. If no target is stated, derive a sensible one from body weight',
+    '     and the protein-per-kg figure above, and say plainly that you assumed it.',
+    '   - Subtract what has been eaten so far today. Meals logged as empty have not been eaten yet, so exclude them rather',
+    '     than treating them as zero.',
+    '   - State what is left as calories and protein, then give two or three concrete meal options that fit, using foods',
+    '     that already appear in their log.',
+    '   - If they are already over, say so once, without moralising, and suggest what tomorrow looks like instead.',
+    '   - If almost nothing is logged yet, say the day is too early to call rather than inventing a figure.',
+    '',
     'OUTPUT — use exactly these markdown headings, nothing before or after:',
     '## Read',
     'Two or three sentences on what this day actually says. The thing a chart would not show.',
     '## What stands out',
     'Two to four bullets. Patterns, contradictions, or things connecting across days.',
+    '## Today\'s training',
+    'If no session is logged, the prescribed session with movements, sets, reps and loads, and one line on why this one today. If a session is logged, two or three lines on it instead.',
+    '## Food left today',
+    'Calories and protein remaining against target, then two or three specific options that fit. One line if the day is too early to call.',
     '## Next 12 hours',
     'Three to five concrete actions, each one sentence, in priority order.',
     '## Watch',
@@ -7182,8 +7257,31 @@ async function migrateLegacyFirestore() {
   })();
 })();
 
+/* ----------------------------------------------------------------------------
+   The clinical profile that used to be hardcoded as everyone's default.
+   Run App.applyMyLegacyProfile() once, signed in as yourself, to load it into
+   YOUR record only. Nobody else is affected.
+   ---------------------------------------------------------------------------- */
+async function applyMyLegacyProfile() {
+  const r = Object.assign({}, Repo.doc.role || {}, {
+    signalName: 'Akkrallan',
+    signalPrimaryTrigger: 'Concentrated sugar–dairy matrix in the evening, especially dairy-based frozen desserts after dinner.',
+    signalSecondaryTrigger: 'Concentrated tannin–caffeine–sugar matrix (masala chai, multiple boils, unrefined sugar, dairy), especially without morning coffee priming.',
+    waistTarget: 32.0,
+    constraints: [
+      { name: 'Cervical spine C4–C6 radiculopathy', screen: 'cervical', rule: 'High-load low-rep pressing is contraindicated. Head neutral and supported; no cervical extension under load. Tempo hypertrophy at moderate load is validated.', lowRepMax: 3, minSetsFlag: 4 },
+      { name: 'Right knee, three prior surgeries', screen: 'knee', rule: 'Tiredness is acceptable; sharpness is a stop signal. Watch the SI joint across consecutive lower-body days.', consecutiveDaysFlag: 2 },
+      { name: 'Subclinical hypothyroidism', screen: 'thyroid', rule: 'Severe or prolonged caloric deficits are contraindicated. Moderate sustained deficit with adequate protein is the validated approach.', minKcal: 1200 }
+    ],
+    hierarchy: ['Stop-signal prevention', 'C4–C6 nerve root safety', 'Knee joint integrity', 'Thyroid protection', 'Body composition', 'Training performance', 'Dietary flexibility']
+  });
+  Repo.doc.role = r;
+  await Repo.save();
+  return 'Loaded into your own profile. Reload the page.';
+}
+
 /* Exposed for debugging in the console. */
-window.App = { Account, AccountSource, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
+window.App = { Account, AccountSource, applyMyLegacyProfile, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
   Repo, Config, State, FIELDS, LABELS, ALIASES, clean, touch, cat, catColor, sleepHours, napMin, akkLevel,
   avg, n1, shift, today, iso, fmtDateFull, sortEntries, dedupe, mergeEntries, mergeDocs, normaliseDoc, emptyDoc, docSize,
   csvParse, csvBuild, entriesAoa, rowsToEntries, medicalAoa, medicalFromAoa, parseDateCell, parseTimeCell, parseNumCell,
