@@ -6801,7 +6801,9 @@ async function init() {
    remembered choice it sat forever awaiting a Google popup. That is what left
    the status pill on LOADING. */
 window.__initApp = init;
-if (typeof Account === 'undefined' || !Account.projectId) init();
+/* Deliberately no reference to Account here. It is declared with const further
+   down, and even `typeof Account` throws from the temporal dead zone, which
+   would stop the rest of this script dead. The gate decides when to boot. */
 
 /* ============================================================================
    ACCOUNTS — Firebase Auth + per-user Firestore
@@ -7089,7 +7091,7 @@ async function migrateLegacyFirestore() {
       out.onclick = () => { Account.signOut(); location.reload(); };
       bar.appendChild(who); bar.appendChild(out);
     }
-    if (typeof window.__initApp === 'function') { const go = window.__initApp; window.__initApp = null; go(); }
+    bootNow();
   }
 
   function afterAuth() {
@@ -7146,11 +7148,22 @@ async function migrateLegacyFirestore() {
     finally { b.disabled = false; }
   };
 
+  function bootNow() {
+    if (typeof window.__initApp === 'function') { const go = window.__initApp; window.__initApp = null; go(); }
+  }
+
   (async function start() {
-    if (!Account.projectId) { g('gate').classList.add('done'); return; }   /* no cloud configured: local-only, as before */
-    if (!Account.apiKey) { pane('g-setup'); return; }
-    pane('g-signin');
-    if (await Account.restore()) afterAuth();
+    try {
+      /* No cloud project configured: behave exactly as the app did before. */
+      if (!Account.projectId) { g('gate').classList.add('done'); bootNow(); return; }
+      if (!Account.apiKey) { pane('g-setup'); return; }
+      pane('g-signin');
+      if (await Account.restore()) afterAuth();
+    } catch (e) {
+      /* Never leave a blank card. Show the form and say what went wrong. */
+      pane('g-signin');
+      note('g-msg1', 'err', (e && e.message) || 'Something went wrong starting up.');
+    }
   })();
 })();
 
