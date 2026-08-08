@@ -323,7 +323,7 @@ ul.pred li{margin-bottom:5px}
       <h2>One-time setup</h2>
       <p class="sub">Paste the <strong>Web API key</strong> from Firebase Console → Project settings → General. It's a public identifier, not a secret — your security rules are what protect the data.</p>
       <label for="g-key">Web API key</label>
-      <input id="g-key" placeholder="AIza…">
+      <input id="g-key" placeholder="AIza…" autocapitalize="none" autocorrect="off" spellcheck="false">
       <button class="go" id="g-key-save">Save and continue</button>
     </div>
 
@@ -332,7 +332,7 @@ ul.pred li{margin-bottom:5px}
       <h2>Sign in</h2>
       <p class="sub">Your records are stored per account. Nobody else can read them.</p>
       <label for="g-id">Email or mobile number</label>
-      <input id="g-id" autocomplete="username" placeholder="you@example.com">
+      <input id="g-id" autocomplete="username" placeholder="you@example.com" autocapitalize="none" autocorrect="off" spellcheck="false">
       <label for="g-pin">PIN</label>
       <input id="g-pin" class="pin" inputmode="numeric" maxlength="7" autocomplete="off" placeholder="•••••••">
       <button class="go" id="g-in">Sign in</button>
@@ -345,8 +345,8 @@ ul.pred li{margin-bottom:5px}
       <h2>Create an account</h2>
       <p class="sub">Your starting PIN is built from your date of birth and phone number. You'll replace it straight away.</p>
       <label for="g-name">Full name</label><input id="g-name" placeholder="Alex Morgan">
-      <label for="g-email">Email</label><input id="g-email" type="email" placeholder="you@example.com">
-      <label for="g-phone">Mobile number</label><input id="g-phone" placeholder="0449 732 561">
+      <label for="g-email">Email</label><input id="g-email" type="email" placeholder="you@example.com" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <label for="g-phone">Mobile number</label><input id="g-phone" placeholder="0449 732 561" inputmode="tel" autocorrect="off">
       <label for="g-dob">Date of birth</label><input id="g-dob" type="date">
       <button class="go" id="g-reg">Create account</button>
       <div class="swap">Already registered? <button id="g-to-in">Sign in</button></div>
@@ -6826,7 +6826,10 @@ window.__initApp = init;
    /users/{uid} prefix on the path.
    ============================================================================ */
 
-const FIREBASE_API_KEY = '';                 /* or paste it here for every device */
+const FIREBASE_API_KEY = 'AIzaSyBa3NdJgkPiuROQaJANSk_1qONB_o5dfS0';
+/* Public identifier, not a secret — it is in the page source of every Firebase
+   web app there is. firestore.rules is what protects the data. Baked in so no
+   device, and no new user, ever has to type it. */
 const IDENTITY = 'https://identitytoolkit.googleapis.com/v1/accounts:';
 const SECURETOKEN = 'https://securetoken.googleapis.com/v1/token';
 const ACCT_KEY = 'dailylog:account';
@@ -7081,6 +7084,8 @@ async function migrateLegacyFirestore() {
     if (c.includes('PASSWORD_LOGIN_DISABLED')) return 'Email/Password sign-in is switched off in the Firebase console.';
     if (c.includes('WEAK_PASSWORD')) return 'Firebase rejected that PIN as too short.';
     if (c.includes('API key not valid') || c.includes('API_KEY')) return 'That Web API key is not valid for this project.';
+    if (c.includes('Permission denied on resource project') || c.includes('PERMISSION_DENIED'))
+      return 'Firebase refused the request for this project. Usually the Web API key is wrong or belongs to another project, or the Identity Toolkit API is not enabled.';
     return (e && e.message) || 'Something went wrong.';
   };
 
