@@ -6747,7 +6747,7 @@ function wire() {
 async function fileHasData() { return false; }
 
 /* ---------- go ---------- */
-(async function init() {
+async function init() {
   Repo.init();
   AI.load();
   Repo.onChange(renderSaveState);
@@ -6756,7 +6756,11 @@ async function fileHasData() { return false; }
   const want = Config.get('source', null);
   let started = false;
   try {
-    if (want === 'file') {
+    /* ADDED: being signed in means the account source wins, whatever was remembered. */
+    if (typeof Account !== 'undefined' && Account.signedIn && Repo.sources.account && Repo.sources.account.available) {
+      await Repo.use('account', { connect: true }); started = true;
+      Config.set('source', 'account');
+    } else if (want === 'file') {
       const fs = Repo.sources.file;
       if (fs.available && await fs.restore()) { await Repo.use('file', {}); started = true; }
       else if (fs.available) { showBanner('Reconnect your data file to carry on where you left off.', 'Reconnect file'); $('#banner').dataset.sticky = '1'; }
@@ -6788,8 +6792,16 @@ async function fileHasData() { return false; }
   renderAiSetup();
   renderBulkEval();
   if (!State.entries.length && !$('#banner').dataset.sticky)
-    showBanner('No data yet. Connect your daily-log-data.json under "Where this record lives", or import it below.', null);
-})();
+    showBanner('No data yet. If your records are still in the old shared collections, run await App.migrateLegacyFirestore() in the console, or import a backup below.', null);
+}
+
+/* ADDED: boot only once an account is ready. Previously init() ran the moment
+   the script finished parsing — before the gate had authenticated — so it fell
+   through to empty local storage, and if the legacy Firestore source was the
+   remembered choice it sat forever awaiting a Google popup. That is what left
+   the status pill on LOADING. */
+window.__initApp = init;
+if (typeof Account === 'undefined' || !Account.projectId) init();
 
 /* ============================================================================
    ACCOUNTS — Firebase Auth + per-user Firestore
@@ -7057,6 +7069,7 @@ async function migrateLegacyFirestore() {
     if (c.includes('TOO_MANY_ATTEMPTS') || c.includes('too-many')) return 'Too many attempts. Wait a few minutes and try again.';
     if (c.includes('INVALID_LOGIN') || c.includes('INVALID_PASSWORD') || c.includes('EMAIL_NOT_FOUND') || c === 'NO_MATCH')
       return 'That email or phone number and PIN do not match.';   /* one message for every failure */
+    if (c.includes('PASSWORD_LOGIN_DISABLED')) return 'Email/Password sign-in is switched off in the Firebase console.';
     if (c.includes('WEAK_PASSWORD')) return 'Firebase rejected that PIN as too short.';
     if (c.includes('API key not valid') || c.includes('API_KEY')) return 'That Web API key is not valid for this project.';
     return (e && e.message) || 'Something went wrong.';
@@ -7076,7 +7089,7 @@ async function migrateLegacyFirestore() {
       out.onclick = () => { Account.signOut(); location.reload(); };
       bar.appendChild(who); bar.appendChild(out);
     }
-    document.dispatchEvent(new CustomEvent('account:ready'));
+    if (typeof window.__initApp === 'function') { const go = window.__initApp; window.__initApp = null; go(); }
   }
 
   function afterAuth() {
