@@ -7057,6 +7057,13 @@ async function migrateLegacyFirestore() {
    pinResetRequired is true.
    ============================================================================ */
 (function () {
+  /* Config.load() normally happens inside Repo.init(), which no longer runs
+     until after sign-in. Without this the gate reads an empty Config: the API
+     key never appears saved (endless setup screen), and worse, Config.set()
+     writes a one-key object over the whole stored config, discarding the Google
+     client ID and the remembered source. Load it here first. */
+  Config.load();
+
   const g = id => document.getElementById(id);
   const panes = ['g-setup', 'g-signin', 'g-register', 'g-reset'];
   const pane = n => panes.forEach(p => g(p).style.display = (p === n ? 'block' : 'none'));
@@ -7107,7 +7114,7 @@ async function migrateLegacyFirestore() {
   g('g-key-save').onclick = () => {
     const k = g('g-key').value.trim();
     if (!k) return;
-    Config.set('fbKey', k); Config.save ? Config.save() : null;
+    Config.set('fbKey', k);          /* Config.set already persists */
     location.reload();
   };
   g('g-to-reg').onclick = () => { note('g-msg1', '', ''); pane('g-register'); };
