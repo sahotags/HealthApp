@@ -430,7 +430,7 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
       <button data-v="train">Training</button>
       <button data-v="nut">Nutrition</button>
       <button data-v="med">Profile</button>
-      <button data-v="data">Data</button>
+      <button data-v="data" id="tab-data">Data</button>
     </nav>
   </div>
 </div>
@@ -3107,6 +3107,29 @@ const AI = {
   save(patch) {
     Object.assign(this.cfg, patch || {});
     try { localStorage.setItem(AI_CFG_KEY, JSON.stringify(this.cfg)); } catch (e) { this.lastError = 'could not save settings on this device'; }
+    /* Also keep it with the account, so a second device does not start from
+       scratch. This lands in the signed-in person's own Firestore tree, which
+       only they can read. Private-mode browsing clears localStorage on exit,
+       so the device copy alone is not dependable either. */
+    try {
+      if (typeof Repo !== 'undefined' && Repo.doc && typeof Account !== 'undefined' && Account.signedIn) {
+        Repo.doc.aiCfg = this.cfg;
+        if (typeof saveSoon === 'function') saveSoon();
+      }
+    } catch (e) { /* never let a settings write break the app */ }
+    return this.cfg;
+  },
+  /* Called once the account's document has loaded. Device settings win only
+     where the account has nothing, so switching devices does not clobber. */
+  adoptFromDoc() {
+    try {
+      const fromDoc = (typeof Repo !== 'undefined' && Repo.doc && Repo.doc.aiCfg) || null;
+      if (!fromDoc) return this.cfg;
+      const deviceHasKey = !!(this.cfg.key || this.cfg.proxyUrl);
+      this.cfg = Object.assign({}, this.cfg, deviceHasKey ? Object.assign({}, fromDoc, { key: this.cfg.key || fromDoc.key, proxyUrl: this.cfg.proxyUrl || fromDoc.proxyUrl }) : fromDoc);
+      if (!(this.cfg.maxTokens >= AI_MIN_OUTPUT_TOKENS)) this.cfg.maxTokens = AI_MIN_OUTPUT_TOKENS;
+      try { localStorage.setItem(AI_CFG_KEY, JSON.stringify(this.cfg)); } catch (e) { /* private mode */ }
+    } catch (e) { /* leave device settings alone */ }
     return this.cfg;
   },
   get enabled() {
@@ -6354,9 +6377,27 @@ function debounce(fn, ms) {
   };
 }
 
+/* Admin is decided by the account profile, which is written by the rules-checked
+   registration path. With no account system in play, everything stays visible. */
+function isAdminUser() {
+  try {
+    if (typeof Account === 'undefined' || !Account.signedIn) return true;
+    return !!(Account.profile && Account.profile.role === 'admin');
+  } catch (e) { return true; }
+}
+function applyRoleVisibility() {
+  const t = document.getElementById('tab-data');
+  if (t) t.style.display = isAdminUser() ? '' : 'none';
+  if (!isAdminUser() && typeof State !== 'undefined' && State.view === 'data') switchView('dash');
+}
+
 function wire() {
   $('#tabs').addEventListener('click', ev => {
     const b = ev.target.closest('button[data-v]'); if (!b) return;
+    /* Data holds the source switch, the migration and the export. Members do
+       not get it, and the guard is here rather than only on the button so a
+       stale hash or a keyboard route cannot reach it either. */
+    if (b.dataset.v === 'data' && !isAdminUser()) return;
     if (b.dataset.v === 'entry' && !State.editingId) openEntry(null, today()); else switchView(b.dataset.v);
   });
 
@@ -6944,6 +6985,11 @@ async function init() {
   renderStoreStats();
   renderAiSetup();
   renderBulkEval();
+  /* The account document is loaded by this point: adopt any AI settings saved
+     against the account, and hide anything this role should not see. */
+  try { AI.adoptFromDoc(); } catch (e) { /* device settings stand */ }
+  try { applyRoleVisibility(); } catch (e) { /* fail open, never lock the UI */ }
+
   if (!State.entries.length && !$('#banner').dataset.sticky)
     showBanner('No data yet. If your records are still in the old shared collections, run await App.migrateLegacyFirestore() in the console, or import a backup below.', null);
 }
