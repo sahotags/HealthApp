@@ -278,6 +278,16 @@ ul.pred li{margin-bottom:5px}
   .detail-in{grid-template-columns:1fr}
   .ribbon-wrap svg{height:130px}
 }
+/* ---------- voice entry (added) ---------- */
+#voicePanel{border:1px solid var(--line);border-radius:var(--r);background:var(--surface2);padding:12px;margin-bottom:14px}
+#voicePanel textarea{width:100%;min-height:64px;margin-top:8px}
+#btnVoiceMic.listening{background:var(--crimson);color:#fff;border-color:var(--crimson)}
+#btnVoiceMic.listening::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;margin-right:7px;animation:dl-pulse 1s ease-in-out infinite}
+@keyframes dl-pulse{0%,100%{opacity:1}50%{opacity:.25}}
+#voiceInterim{font-style:italic;color:var(--ink2);min-height:1.2em;font-size:.85rem;margin-top:6px}
+#voiceReview table{width:100%;font-size:.82rem}
+#voiceReview .pill{background:var(--teal-soft);color:var(--teal);padding:1px 7px;border-radius:5px;font-size:.7rem}
+
 /* ---------- motion (added) ----------
    All of this is disabled wholesale by the prefers-reduced-motion rule further
    down, so nothing here fights an accessibility setting. */
@@ -562,6 +572,20 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
         <button class="btn btn-sm" id="btnCopyPrev">Copy previous day</button>
       </div>
       <div class="card-b">
+        <div id="voicePanel">
+          <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+            <b style="font-size:.9rem">Say your day instead</b>
+            <div class="spacer"></div>
+            <button type="button" class="btn btn-sm" id="btnVoiceMic">Start speaking</button>
+            <button type="button" class="btn btn-sm btn-primary" id="btnVoiceGo">Turn this into fields</button>
+            <button type="button" class="btn btn-sm" id="btnVoiceClear">Clear</button>
+          </div>
+          <p class="note" style="margin:6px 0 0">Talk through the whole day in one go — what you ate, what you trained, how you slept. Or tap the microphone on your keyboard and dictate into the box. Nothing is filled in until you have seen what it heard.</p>
+          <textarea id="voiceText" placeholder="Two boiled eggs and coffee for breakfast, chicken salad for lunch. Walked about five kilometres. Bench three by eight at eighty. Slept eleven till six, felt good, no fog."></textarea>
+          <div id="voiceInterim"></div>
+          <div id="voiceMsg"></div>
+          <div id="voiceReview"></div>
+        </div>
         <form id="form" autocomplete="off">
           <fieldset>
             <div class="fs-h"><span class="n">01</span><h4>Day &amp; body</h4><div class="rule"></div></div>
@@ -6392,6 +6416,15 @@ function applyRoleVisibility() {
 }
 
 function wire() {
+  /* voice entry */
+  const vMic = $('#btnVoiceMic'), vGo = $('#btnVoiceGo'), vClr = $('#btnVoiceClear');
+  if (vMic) {
+    if (!Voice.supported) { vMic.style.display = 'none'; }
+    else vMic.addEventListener('click', () => Voice.start());
+  }
+  if (vGo) vGo.addEventListener('click', () => Voice.interpret());
+  if (vClr) vClr.addEventListener('click', () => Voice.clear());
+
   $('#tabs').addEventListener('click', ev => {
     const b = ev.target.closest('button[data-v]'); if (!b) return;
     /* Data holds the source switch, the migration and the export. Members do
@@ -7404,8 +7437,179 @@ async function applyMyLegacyProfile() {
   return 'Loaded into your own profile. Reload the page.';
 }
 
+
+/* ============================================================================
+   VOICE ENTRY — ADDED
+   Two ways in, because neither alone covers every device:
+     1. Live microphone via the Web Speech API. Free, no server, but Safari's
+        support is patchy and it needs a network round trip on iOS.
+     2. A plain textarea. Every mobile keyboard has a dictation key, which is
+        often more accurate than the Web Speech API and always available.
+   Either way the transcript goes to Claude, which returns structured fields.
+   Nothing is written until the person has seen exactly what will change.
+   ============================================================================ */
+const Voice = {
+  rec: null, listening: false, transcript: '', proposal: null,
+
+  get supported() {
+    return typeof window !== 'undefined' &&
+      !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  },
+
+  start() {
+    if (this.listening) return this.stop();
+    const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!R) { this.say('This browser has no live microphone support. Use the dictation key on your keyboard in the box below instead.', 'info'); return; }
+    try {
+      const r = new R();
+      r.lang = navigator.language || 'en-AU';
+      r.continuous = true;
+      r.interimResults = true;
+      r.onresult = ev => {
+        let finalTxt = '', interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const t = ev.results[i][0].transcript;
+          if (ev.results[i].isFinal) finalTxt += t + ' '; else interim += t;
+        }
+        if (finalTxt) {
+          const box = document.getElementById('voiceText');
+          box.value = (box.value + ' ' + finalTxt).replace(/\s+/g, ' ').trim();
+        }
+        const hint = document.getElementById('voiceInterim');
+        if (hint) hint.textContent = interim;
+      };
+      r.onerror = ev => {
+        this.listening = false; this.paint();
+        const m = ev.error === 'not-allowed'
+          ? 'Microphone access was refused. Allow it in your browser settings, or dictate into the box instead.'
+          : ev.error === 'no-speech' ? 'Nothing was picked up. Try again, or type it.'
+          : 'The microphone stopped: ' + ev.error;
+        this.say(m, 'err');
+      };
+      r.onend = () => { this.listening = false; this.paint();
+        const hint = document.getElementById('voiceInterim'); if (hint) hint.textContent = ''; };
+      r.start();
+      this.rec = r; this.listening = true; this.paint();
+      this.say('Listening. Say the whole day in one go — food, training, sleep, how you felt.', 'info');
+    } catch (e) { this.say('Could not start the microphone: ' + e.message, 'err'); }
+  },
+
+  stop() {
+    try { if (this.rec) this.rec.stop(); } catch (e) { /* already stopped */ }
+    this.listening = false; this.paint();
+  },
+
+  say(msg, kind) {
+    const el = document.getElementById('voiceMsg'); if (!el) return;
+    el.innerHTML = msg ? '<div class="msg ' + (kind || 'info') + '">' + esc(msg) + '</div>' : '';
+  },
+
+  paint() {
+    const b = document.getElementById('btnVoiceMic'); if (!b) return;
+    b.textContent = this.listening ? 'Stop listening' : 'Start speaking';
+    b.setAttribute('aria-pressed', String(this.listening));
+    b.classList.toggle('listening', this.listening);
+  },
+
+  /* Ask Claude to turn the spoken day into fields. Values it is not confident
+     about are simply omitted rather than guessed. */
+  async interpret() {
+    const text = (document.getElementById('voiceText').value || '').trim();
+    if (!text) { this.say('Say something first, or type it into the box.', 'info'); return; }
+    if (!AI.enabled) { this.say('Voice entry needs Claude switched on — it is what turns what you said into fields. Set it up under Data, AI analysis.', 'err'); return; }
+
+    const btn = document.getElementById('btnVoiceGo');
+    btn.disabled = true; btn.textContent = 'Reading it…';
+    this.say('', '');
+    try {
+      const sys = [
+        'You convert a spoken health-log entry into structured fields. Return ONLY a JSON object, no prose, no markdown fences.',
+        'Allowed keys, all optional: ' + FIELDS.join(', ') + '.',
+        'Rules:',
+        '- Omit any key you are not confident about. Never guess a number.',
+        '- weight and waist and walkKm are numbers. Times are 24-hour HH:MM. Dates are YYYY-MM-DD.',
+        '- Food fields (breakfast, lunch, inBetween, dinner, supplements) keep the person\'s own wording, tidied up.',
+        '- exerciseType is one short label. exerciseDetails holds sets, reps and loads as spoken.',
+        '- sleepQuality, brainFog, energyPre, energyPost and akkrallan are short labels such as Good, None, Mild, High.',
+        '- If they say "no dinner" or "skipped lunch", set that field to an empty string so it reads as deliberately empty.',
+        '- Today is ' + today() + '. Resolve "this morning", "last night" and similar against that.',
+        'Also return a key called _notes: one short sentence naming anything you heard but could not place.'
+      ].join('\n');
+
+      const res = await AI.complete(sys, text, 1500, { kind: 'voice', cache: false });
+      let raw = (res.text || '').replace(/```json|```/g, '').trim();
+      const a = raw.indexOf('{'), z = raw.lastIndexOf('}');
+      if (a < 0 || z < 0) throw new Error('could not read a result from that');
+      const parsed = JSON.parse(raw.slice(a, z + 1));
+
+      const notes = parsed._notes; delete parsed._notes;
+      const clean = {};
+      Object.keys(parsed).forEach(k => { if (FIELDS.indexOf(k) >= 0) clean[k] = parsed[k]; });
+      if (!Object.keys(clean).length) { this.say('Nothing usable came back from that. Try saying it again with a bit more detail.', 'err'); return; }
+
+      this.proposal = clean;
+      this.review(clean, notes);
+    } catch (e) {
+      this.say('Could not interpret that: ' + e.message, 'err');
+    } finally { btn.disabled = false; btn.textContent = 'Turn this into fields'; }
+  },
+
+  /* Show precisely what will change before anything is written. */
+  review(clean, notes) {
+    const f = document.getElementById('form').elements;
+    const rows = Object.keys(clean).map(k => {
+      const el = f[k];
+      const before = el ? String(el.value || '') : '';
+      const after = clean[k] === null || clean[k] === undefined ? '' : String(clean[k]);
+      const changed = before.trim() !== after.trim();
+      return '<tr' + (changed ? '' : ' class="muted"') + '>' +
+        '<td><b>' + esc(k) + '</b></td>' +
+        '<td>' + (before ? esc(before) : '<span class="muted">empty</span>') + '</td>' +
+        '<td>' + (after ? esc(after) : '<span class="muted">empty</span>') + '</td>' +
+        '<td>' + (changed ? '<span class="pill">will change</span>' : '<span class="muted">same</span>') + '</td></tr>';
+    }).join('');
+    document.getElementById('voiceReview').innerHTML =
+      '<div class="note" style="margin:10px 0 6px"><b>' + Object.keys(clean).length + ' field(s) heard.</b> Nothing is saved until you apply it.</div>' +
+      '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Field</th><th>Now</th><th>Heard</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      (notes ? '<p class="note" style="margin-top:8px">' + esc(notes) + '</p>' : '') +
+      '<div class="row" style="margin-top:10px;gap:8px">' +
+      '<button class="btn btn-primary btn-sm" id="btnVoiceApply">Apply to the form</button>' +
+      '<button class="btn btn-sm" id="btnVoiceDiscard">Discard</button></div>';
+    document.getElementById('btnVoiceApply').onclick = () => this.apply();
+    document.getElementById('btnVoiceDiscard').onclick = () => this.reset();
+  },
+
+  apply() {
+    if (!this.proposal) return;
+    const f = document.getElementById('form').elements;
+    let n = 0;
+    Object.keys(this.proposal).forEach(k => {
+      const el = f[k]; if (!el) return;
+      const v = this.proposal[k];
+      el.value = v === null || v === undefined ? '' : v;
+      el.classList.add('saved-flash');
+      setTimeout(() => el.classList.remove('saved-flash'), 900);
+      n++;
+    });
+    this.reset();
+    this.say(n + ' field(s) filled in. Check them, then save the day as usual.', 'ok');
+    try { updateSleepCalc(); checkAvoid(); renderFormNutrition(); } catch (e) { /* best effort */ }
+  },
+
+  reset() {
+    this.proposal = null;
+    const r = document.getElementById('voiceReview'); if (r) r.innerHTML = '';
+  },
+
+  clear() {
+    this.stop(); this.reset();
+    const t = document.getElementById('voiceText'); if (t) t.value = '';
+    this.say('', '');
+  }
+};
+
 /* Exposed for debugging in the console. */
-window.App = { Account, AccountSource, applyMyLegacyProfile, AI, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
+window.App = { Account, AccountSource, applyMyLegacyProfile, AI, Voice, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
   Repo, Config, State, FIELDS, LABELS, ALIASES, clean, touch, cat, catColor, sleepHours, napMin, akkLevel,
   avg, n1, shift, today, iso, fmtDateFull, sortEntries, dedupe, mergeEntries, mergeDocs, normaliseDoc, emptyDoc, docSize,
   csvParse, csvBuild, entriesAoa, rowsToEntries, medicalAoa, medicalFromAoa, parseDateCell, parseTimeCell, parseNumCell,
