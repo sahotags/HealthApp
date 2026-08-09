@@ -3075,7 +3075,7 @@ function aiPrice(model) {
 
 const AI = {
   cfg: {
-    mode: 'off', key: '', proxyUrl: '', scope: 'context', maxTokens: 1600,
+    mode: 'off', key: '', proxyUrl: '', scope: 'context', maxTokens: 3000,
     model: 'claude-sonnet-5',              // reasoning: the daily briefing
     modelEval: 'claude-haiku-4-5',         // extraction: diet and workout breakdowns
     searchMaxUses: 2,                      // web lookups are the expensive path
@@ -3168,6 +3168,14 @@ const AI = {
     }
     const j = await r.json();
     const text = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n').trim();
+    /* Keep the raw response for diagnosis. An empty result used to surface as
+       "the model returned nothing", which says nothing about why. */
+    AI.lastRaw = j;
+    if (!text) {
+      const blocks = (j.content || []).map(c => c.type).join(', ') || 'none';
+      AI.lastEmptyReason = 'stop_reason=' + (j.stop_reason || '?') + '; blocks=' + blocks +
+        '; out_tokens=' + ((j.usage && j.usage.output_tokens) || 0);
+    }
     recordUsage(o.kind || 'analysis', j.model || body.model, j.usage);
     return { text: text, usage: j.usage || null, model: j.model || body.model };
   }
@@ -3434,7 +3442,12 @@ async function runAnalysis(dateStr, opts) {
     if (c) return Object.assign({}, c, { cached: true });
   }
   const res = await AI.complete(aiSystemPrompt(), aiUserPrompt(b, scope), AI.cfg.maxTokens, { kind: 'briefing' });
-  if (!res.text) throw new Error('The model returned nothing');
+  if (!res.text) {
+    const why = AI.lastEmptyReason ? ' (' + AI.lastEmptyReason + ')' : '';
+    if (AI.lastRaw && AI.lastRaw.stop_reason === 'max_tokens')
+      throw new Error('The model ran out of output space before writing anything. Raise the token limit in Data \u2192 AI analysis.' + why);
+    throw new Error('The model returned no text' + why + '. Run App.AI.lastRaw in the console to see the full response.');
+  }
   aiStore(b, scope, res);
   return Object.assign({}, aiGetFresh(b, scope), { cached: false });
 }
@@ -7281,7 +7294,7 @@ async function applyMyLegacyProfile() {
 }
 
 /* Exposed for debugging in the console. */
-window.App = { Account, AccountSource, applyMyLegacyProfile, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
+window.App = { Account, AccountSource, applyMyLegacyProfile, AI, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
   Repo, Config, State, FIELDS, LABELS, ALIASES, clean, touch, cat, catColor, sleepHours, napMin, akkLevel,
   avg, n1, shift, today, iso, fmtDateFull, sortEntries, dedupe, mergeEntries, mergeDocs, normaliseDoc, emptyDoc, docSize,
   csvParse, csvBuild, entriesAoa, rowsToEntries, medicalAoa, medicalFromAoa, parseDateCell, parseTimeCell, parseNumCell,
