@@ -3002,7 +3002,11 @@ function briefingFor(dateStr) {
   return {
     goal: goal, goalProgress: gp,
     date: e.date, entry: e, tone: tone, summary: summary, completeness: comp,
-    weight: e.weight, w7: w7 ? e.weight - w7.weight : null, w30: w30 ? e.weight - w30.weight : null,
+    weight: e.weight,
+    /* Both operands must be real. Without the e.weight check, an unweighed
+       day coerces null to 0 and reports minus the previous weight. */
+    w7: (e.weight != null && w7) ? e.weight - w7.weight : null,
+    w30: (e.weight != null && w30) ? e.weight - w30.weight : null,
     waist: waistNow, waistDate: waistDate, waistPrev: waistPrev ? waistPrev.waist : null,
     waistTarget: (function () { const g = goalById(e.goalId) || goalForDate(e.date); return (g && g.targetWaist != null) ? g.targetWaist : P().waistTarget; })(),
     waistToGo: (function () {
@@ -3374,6 +3378,9 @@ function aiSystemPrompt() {
     '   - Keep the target stable day to day. Only change it if weight, activity or the goal itself has moved materially,',
     '     and say when you do.',
     '   - If the client HAS stated explicit numeric targets, use theirs instead and say you are doing so.',
+    '   - If some food items were not recognised, NAME them in one short line so the client can add them to their food',
+    '     library. An unrecognised item counts as zero, so the intake figure is understated by exactly those items —',
+    '     say which, rather than only giving a recognition percentage.',
     '   - Subtract what has been eaten so far today. Meals logged as empty have not been eaten yet, so exclude them rather',
     '     than treating them as zero.',
     '   - State what is left as calories and protein, then give two or three concrete meal options that fit, using foods',
@@ -3385,6 +3392,8 @@ function aiSystemPrompt() {
     '  (a) tell the client how the day went and whether it moved them toward or away from their stated goals;',
     '  (b) tell them what to do for the rest of TODAY — which session to train, and how much more to eat.',
     'Do not pad. If a section has little to say, keep it to a line. Never restate numbers they can already see.',
+    'Say each thing ONCE, in the section where it is most actionable. Do not raise a point under one heading and repeat',
+    'it under another. Data faults belong in Watch; goal arithmetic belongs in Goal check.',
     '',
     'OUTPUT — use exactly these markdown headings, nothing before or after:',
     '## How the day went',
