@@ -3032,6 +3032,9 @@ function briefingFor(dateStr) {
    ============================================================================ */
 
 const AI_CFG_KEY = 'dailylog:ai';
+/* Floor for briefing output. Six sections, plus any thinking blocks the
+   model emits, all draw on max_tokens. */
+const AI_MIN_OUTPUT_TOKENS = 3000;
 const ANTHROPIC_VERSION = '2023-06-01';
 const AI_FALLBACK_MODELS = [
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — balanced' },
@@ -3088,6 +3091,12 @@ const AI = {
 
   load() {
     try { this.cfg = Object.assign(this.cfg, JSON.parse(localStorage.getItem(AI_CFG_KEY) || '{}')); }
+    catch (e) { /* fall through to the clamp below */ }
+    /* Saved settings override the defaults, so a value stored before the prompt
+       grew will silently starve the response. The briefing now has six sections
+       and the model may also emit thinking blocks, which consume the same
+       budget. Clamp anything below the floor. */
+    try { if (!(this.cfg.maxTokens >= AI_MIN_OUTPUT_TOKENS)) { this.cfg.maxTokens = AI_MIN_OUTPUT_TOKENS; this.save(); } }
     catch (e) { /* defaults */ }
     return this.cfg;
   },
@@ -3155,9 +3164,25 @@ const AI = {
         : system,
       messages: [{ role: 'user', content: userText }]
     };
-    const r = await fetch(this.endpoint('/v1/messages'), {
+    /* The briefing is instruction-following and arithmetic, not deep reasoning.
+       Left unset, the model may spend the entire output budget on thinking
+       blocks and return no text at all — which is exactly what happened at
+       1600 tokens. Ask for it off, and retry without the flag if a model
+       refuses the parameter. */
+    body.thinking = { type: 'disabled' };
+    let r = await fetch(this.endpoint('/v1/messages'), {
       method: 'POST', headers: this.headers(), body: JSON.stringify(body)
     });
+    if (r.status === 400) {
+      const probe = await r.clone().json().catch(() => null);
+      const m = probe && probe.error && probe.error.message || '';
+      if (/thinking/i.test(m)) {
+        delete body.thinking;
+        r = await fetch(this.endpoint('/v1/messages'), {
+          method: 'POST', headers: this.headers(), body: JSON.stringify(body)
+        });
+      }
+    }
     if (!r.ok) {
       let msg = 'HTTP ' + r.status;
       try { const j = await r.json(); if (j.error && j.error.message) msg = j.error.message; } catch (e) { /* keep status */ }
@@ -3338,8 +3363,17 @@ function aiSystemPrompt() {
     '   If a session is already logged, do not prescribe another. Comment on the one they did.',
     '',
     '2. REMAINING FOOD FOR TODAY. Work out what is left to eat.',
-    '   - Take the calorie and protein targets from the goals. If no target is stated, derive a sensible one from body weight',
-    '     and the protein-per-kg figure above, and say plainly that you assumed it.',
+    '   - DERIVE the daily calorie and protein targets yourself. Do not expect the client to have entered them, and do not',
+    '     ask them to. They describe the outcome they want in plain words; converting that into numbers is your job.',
+    '   - Work it out like this: estimate maintenance energy from their most recent body weight and their actual logged',
+    '     activity over the recent days shown. Then apply the deficit or surplus needed to reach the stated outcome by the',
+    '     stated date, keeping the rate sane. Protein comes from body weight at the protein-per-kg figure above.',
+    '   - Respect any minimum-calorie constraint in the profile above; it outranks hitting the date. If the goal cannot be',
+    '     reached safely in the time left, say so and give the rate that can.',
+    '   - Show the derivation in ONE short line, so the number is trustworthy rather than magic.',
+    '   - Keep the target stable day to day. Only change it if weight, activity or the goal itself has moved materially,',
+    '     and say when you do.',
+    '   - If the client HAS stated explicit numeric targets, use theirs instead and say you are doing so.',
     '   - Subtract what has been eaten so far today. Meals logged as empty have not been eaten yet, so exclude them rather',
     '     than treating them as zero.',
     '   - State what is left as calories and protein, then give two or three concrete meal options that fit, using foods',
@@ -3347,24 +3381,45 @@ function aiSystemPrompt() {
     '   - If they are already over, say so once, without moralising, and suggest what tomorrow looks like instead.',
     '   - If almost nothing is logged yet, say the day is too early to call rather than inventing a figure.',
     '',
+    'THIS APP EXISTS TO DO TWO THINGS. Everything you write must serve one of them:',
+    '  (a) tell the client how the day went and whether it moved them toward or away from their stated goals;',
+    '  (b) tell them what to do for the rest of TODAY — which session to train, and how much more to eat.',
+    'Do not pad. If a section has little to say, keep it to a line. Never restate numbers they can already see.',
+    '',
     'OUTPUT — use exactly these markdown headings, nothing before or after:',
-    '## Read',
-    'Two or three sentences on what this day actually says. The thing a chart would not show.',
-    '## What stands out',
-    'Two to four bullets. Patterns, contradictions, or things connecting across days.',
+    '## How the day went',
+    'Three to five sentences. Was this a good day against their goals, or not? Say which. Name the one or two things that decided it. Where a goal was missed, say by how much in real numbers. Where it was met, say so plainly rather than hedging. If the day is still in progress, judge what has happened so far and say it is provisional.',
+    '## Goal check',
+    'Read their goal as plain English and turn it into something measurable yourself. One bullet per goal: the goal, then on track / behind / ahead, then the number that shows it and what would close the gap. Include the daily calorie and protein targets you derived here, with the one-line derivation, so they can see where the numbers came from. If no goal is set, one line saying so and what a sensible one would be.',
     '## Today\'s training',
-    'If no session is logged, the prescribed session with movements, sets, reps and loads, and one line on why this one today. If a session is logged, two or three lines on it instead.',
+    'If no session is logged, prescribe one: specific movements with sets, reps and a load anchored to what they have actually lifted before, and one line on why this session today given recent days and recovery. Rest or mobility is a valid prescription after heavy or consecutive days — say so and why. If a session is already logged, two or three lines assessing it instead.',
     '## Food left today',
-    'Calories and protein remaining against target, then two or three specific options that fit. One line if the day is too early to call.',
-    '## Next 12 hours',
-    'Three to five concrete actions, each one sentence, in priority order.',
+    'Calories and protein still available against target, as numbers. Then two or three specific meals that fit, built from foods already in their log. If they are over, say so once without moralising and say what tomorrow looks like. If too little is logged to judge, say the day is too early to call.',
     '## Watch',
-    'One or two bullets on what to keep an eye on, and what would change your read.'
+    'One or two bullets. What to keep an eye on, and what would change your read.'
   ].filter(Boolean).join('\n');
 }
 
 function aiUserPrompt(b, scope) {
   const parts = ['Here is today\'s log.\n', aiDayFacts(b)];
+
+  /* Goals go in at every scope. They were previously gated behind scope
+     'full' while the default is 'context', so the model was being asked to
+     judge the day against targets it had never been shown, and to work out
+     what was left to eat with no target to subtract from. */
+  const goalText = (Repo.doc.medical && Repo.doc.medical.goals || '').trim();
+  if (goalText) parts.push('\n\nTHE CLIENT\'S STATED GOALS, in their own words:\n' + goalText);
+  else parts.push('\n\nNO GOALS HAVE BEEN ENTERED. Say so plainly, give the day an honest read anyway, and suggest what a sensible goal would look like given the data.');
+
+  const gpAlways = b.goalProgress;
+  if (gpAlways && !gpAlways.empty) {
+    parts.push('\n\nACTIVE GOAL: ' + (gpAlways.name || 'unnamed') + ', day ' + gpAlways.elapsed + ' of ' + (gpAlways.totalDays || '?') +
+      (gpAlways.waist && gpAlways.waist.target != null
+        ? '; waist ' + gpAlways.waist.start + '" to ' + gpAlways.waist.now + '", target ' + gpAlways.waist.target + '"' : '') +
+      '; walking ' + gpAlways.walkPerWeek + ' km/week' + (gpAlways.walkTarget ? ' against a target of ' + gpAlways.walkTarget : '') +
+      '; ' + gpAlways.sessionsPerWeek + ' sessions/week' + (gpAlways.sessionTarget ? ' against a target of ' + gpAlways.sessionTarget : '') + '.');
+  }
+
   if (scope !== 'day') {
     parts.push('\n\nTHE LAST 14 DAYS, tab-separated. Blank means not logged:\n' + aiTrend(b.date, 14));
   }
@@ -4584,7 +4639,8 @@ const MED_SECTIONS = [
 function renderMedical() {
   const m = State.medical;
   let h = '<div class="card"><div class="card-h"><div><div class="eyebrow">The brief</div><h3 style="margin-top:2px">What I am working towards</h3></div></div>' +
-    '<div class="card-b"><textarea id="medGoals" rows="2">' + esc(m.goals || '') + '</textarea></div></div>';
+    '<div class="card-b"><textarea id="medGoals" rows="3" placeholder="Plain words are enough — say what you want and by when. For example: lose 4kg by mid September, and get back to four sessions a week without the knee flaring.">' + esc(m.goals || '') + '</textarea>' +
+    '<p class="note" style="margin:8px 0 0">Write it however you would say it out loud. Calorie and protein targets are worked out for you from your weight, your logged activity and the date you give — you do not need to enter numbers.</p></div></div>';
 
   h += '<div class="section-t"><span class="eyebrow">Rules</span><h2>Akkrallan prevention</h2><div class="rule"></div>' +
     '<button class="btn btn-sm" data-medadd="warnings">Add a rule</button></div>' +
