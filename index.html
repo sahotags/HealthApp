@@ -3364,6 +3364,117 @@ function aiTrend(dateStr, days) {
   return 'date\tweight\twaist\tkcal\tprotein\tsugar\twalkKm\tvolumeKg\tsleepH\tsleepQ\t' + role().signalName + '\tenergyAM\tsweet\n' + rows.join('\n');
 }
 
+
+/* ============================================================================
+   CONTEXT BUILDERS — ADDED
+   The briefing was being given 14 rows of aggregates. That is why it could not
+   see an activity collapse measured in weeks, or that the same heavy movement
+   had been repeated five times in eight days. These add the long view, the
+   actual movements, and the foods the client really eats.
+   ============================================================================ */
+
+/* Weekly rollup over the whole record. Twelve months of trend for the cost of
+   about fifty short lines, which a day-by-day table could never afford. */
+function aiWeekly(dateStr, weeks) {
+  const end = dateStr, out = [];
+  const byWeek = {};
+  State.entries.filter(e => e.date <= end).forEach(e => {
+    const d = new Date(e.date + 'T12:00:00');
+    const onejan = new Date(d.getFullYear(), 0, 1);
+    const wk = d.getFullYear() + '-W' + String(Math.ceil((((d - onejan) / 86400000) + onejan.getDay() + 1) / 7)).padStart(2, '0');
+    (byWeek[wk] = byWeek[wk] || []).push(e);
+  });
+  Object.keys(byWeek).sort().slice(-(weeks || 16)).forEach(wk => {
+    const list = byWeek[wk];
+    const km = list.reduce((t, e) => t + (e.walkKm || 0), 0);
+    const sess = list.filter(e => (e.exerciseType || '').trim() && !/^rest$/i.test(e.exerciseType)).length;
+    const kcals = list.map(e => nutritionFor(e)).filter(n => n.hasFood);
+    const kcal = kcals.length ? Math.round(kcals.reduce((t, n) => t + n.totals.kcal, 0) / kcals.length) : '';
+    const ws = list.filter(e => e.weight != null);
+    const wt = ws.length ? n1(ws[ws.length - 1].weight) : '';
+    const wa = list.filter(e => e.waist != null);
+    out.push([wk, list.length, n1(km), sess, kcal, wt, wa.length ? n1(wa[wa.length - 1].waist) : ''].join('\t'));
+  });
+  return 'week\tdaysLogged\twalkKm\tsessions\tavgKcal\tweightEnd\twaistEnd\n' + out.join('\n');
+}
+
+/* The actual movements, loads and reps. Volume alone cannot tell you that the
+   same 80 kg squat has come round five times in eight days, which is precisely
+   the sort of thing the constraint profile exists to catch. */
+function aiTrainingDetail(dateStr, days) {
+  const list = State.entries
+    .filter(e => e.date <= dateStr && ((e.exerciseDetails || '').trim() || (e.exerciseType || '').trim()))
+    .slice(0, days || 28).reverse();
+  if (!list.length) return '';
+  return list.map(e => {
+    const det = (e.exerciseDetails || '').replace(/\s*\n\s*/g, ' | ').trim();
+    return e.date + '\t' + (e.exerciseType || '—') + '\t' + (det || '(no detail recorded)') +
+      (e.otherActivity ? '\t+ ' + e.otherActivity : '');
+  }).join('\n');
+}
+
+/* What the client actually eats, so suggestions come from their own kitchen
+   rather than a generic healthy-eating list. */
+function aiFoodVocabulary() {
+  const lib = (State.foods || []).map(f => f.name).filter(Boolean);
+  const seen = {};
+  /* Meal text is prose, so naive splitting produces fragments like
+     "ms of carbs and 24 gms of protein)". Split on line breaks first, then
+     commas, and reject anything that reads as a fragment rather than a dish. */
+  const looksLikeFragment = t =>
+    !/^[a-z]/.test(t) ||
+    (t.split('(').length !== t.split(')').length) ||
+    /^(and|with|of|the|plus|approx|about)\b/.test(t) ||
+    /^(ms|gms?|mls?|ltrs?)\b/.test(t) ||   /* left over when a split lands mid-word */
+    /\bgms?\b|\bkcal\b|\bprotein\)|\bcarbs\b/.test(t) ||
+    /^(himalayan |black pepper|salt\b|pepper\b|cinnamon\b|water\b)/.test(t);
+  State.entries.slice(0, 60).forEach(e => {
+    ['breakfast', 'lunch', 'inBetween', 'dinner'].forEach(m => {
+      String(e[m] || '').split(/\n+/).forEach(line => {
+        line.split(/[,;]+/).forEach(s => {
+          const t = s.trim().toLowerCase()
+            .replace(/^[-•*\s]+/, '')
+            .replace(/^\d+(\.\d+)?\s*(g|gm|gms|ml|kg|x|tsp|tbsp|cups?|slices?)?\s*/, '')
+            .replace(/\s+/g, ' ').trim();
+          if (t.length > 3 && t.length < 45 && !looksLikeFragment(t)) seen[t] = (seen[t] || 0) + 1;
+        });
+      });
+    });
+  });
+  const common = Object.keys(seen).sort((a, b) => seen[b] - seen[a]).slice(0, 40)
+    .map(k => k + ' (' + seen[k] + ')');
+  const parts = [];
+  if (common.length) parts.push('MEALS THE CLIENT ACTUALLY EATS, most frequent first, with counts over the last 60 logged days:\n' + common.join('; '));
+  if (lib.length) parts.push('THEIR SAVED FOOD LIBRARY:\n' + lib.slice(0, 60).join('; '));
+  return parts.join('\n\n');
+}
+
+/* Supplement protocol and standing rules. These were being left out entirely,
+   so timing advice had nothing to anchor to. */
+function aiProtocol() {
+  const med = State.medical || {};
+  const out = [];
+  const sup = (med.supplements || []).filter(s => s.name).map(s =>
+    '- ' + s.name + (s.dose ? ' ' + s.dose : '') + (s.frequency ? ', ' + s.frequency : '') + (s.timing ? ' — ' + s.timing : ''));
+  if (sup.length) out.push('SUPPLEMENT PROTOCOL:\n' + sup.join('\n'));
+  const warn = (med.warnings || []).filter(Boolean);
+  if (warn.length) out.push('STANDING RULES THE CLIENT HAS SET:\n' + warn.map(w => '- ' + w).join('\n'));
+  const prof = (med.profile || []).filter(p => p.field && p.value)
+    .map(p => p.field + ': ' + p.value);
+  if (prof.length) out.push('PROFILE: ' + prof.join('; '));
+  return out.join('\n\n');
+}
+
+/* Trailing-7-day rates. The goal-window figure divides by the days elapsed in
+   the goal, so on day one of a goal a normal week reads as "1 session". */
+function aiRecentRates(dateStr) {
+  const from = shift(dateStr, -6);
+  const list = State.entries.filter(e => e.date <= dateStr && e.date >= from);
+  const km = list.reduce((t, e) => t + (e.walkKm || 0), 0);
+  const sess = list.filter(e => (e.exerciseType || '').trim() && !/^rest$/i.test(e.exerciseType)).length;
+  return 'LAST 7 DAYS: ' + n1(km) + ' km walked, ' + sess + ' training session(s) logged across ' + list.length + ' logged day(s).';
+}
+
 function aiSystemPrompt() {
   const r = role();
   const cons = r.constraints.map(c => '- ' + c.name + ': ' + (c.rule || '')).join('\n');
@@ -3409,6 +3520,9 @@ function aiSystemPrompt() {
     '   - the stated goals, if any',
     '   - what was trained on the recent days shown, so muscle groups get a rest and the week stays balanced',
     '   - the constraint profile above — every movement must pass it',
+    '   - THE ACTUAL MOVEMENTS AND LOADS in the session list. Check how often each heavy movement has recurred and how',
+    '     recently. Repeating a heavy loading pattern too soon is a real finding — name the dates when you see it.',
+    '   - the week-by-week table for whether activity is rising or collapsing, and say so in weeks, not days.',
     '   Give specific movements with sets, reps and a load cue anchored to what they have actually lifted before.',
     '   If recent days show heavy or consecutive training, or poor sleep, prescribing rest or mobility IS the answer — say so and why.',
     '   If a session is already logged, do not prescribe another. Comment on the one they did.',
@@ -3430,8 +3544,9 @@ function aiSystemPrompt() {
     '     say which, rather than only giving a recognition percentage.',
     '   - Subtract what has been eaten so far today. Meals logged as empty have not been eaten yet, so exclude them rather',
     '     than treating them as zero.',
-    '   - State what is left as calories and protein, then give two or three concrete meal options that fit, using foods',
-    '     that already appear in their log.',
+    '   - State what is left as calories and protein, then give two or three concrete meal options that fit, built from the',
+    '     meals they actually eat, listed above with frequencies. Name real dishes from their own log, not generic',
+    '     healthy-eating suggestions. Respect any standing rules and supplement timings given.',
     '   - If they are already over, say so once, without moralising, and suggest what tomorrow looks like instead.',
     '   - If almost nothing is logged yet, say the day is too early to call rather than inventing a figure.',
     '',
@@ -3473,11 +3588,25 @@ function aiUserPrompt(b, scope) {
       (gpAlways.waist && gpAlways.waist.target != null
         ? '; waist ' + gpAlways.waist.start + '" to ' + gpAlways.waist.now + '", target ' + gpAlways.waist.target + '"' : '') +
       '; walking ' + gpAlways.walkPerWeek + ' km/week' + (gpAlways.walkTarget ? ' against a target of ' + gpAlways.walkTarget : '') +
-      '; ' + gpAlways.sessionsPerWeek + ' sessions/week' + (gpAlways.sessionTarget ? ' against a target of ' + gpAlways.sessionTarget : '') + '.');
+      '; ' + gpAlways.sessionsPerWeek + ' sessions/week' + (gpAlways.sessionTarget ? ' against a target of ' + gpAlways.sessionTarget : '') + '.' +
+      ' NOTE: these rates are averaged over the goal window only, which is ' + gpAlways.elapsed + ' day(s) old, so early in a goal they read low. Use the LAST 7 DAYS line above for the current rate.');
   }
 
   if (scope !== 'day') {
-    parts.push('\n\nTHE LAST 14 DAYS, tab-separated. Blank means not logged:\n' + aiTrend(b.date, 14));
+    parts.push('\n\n' + aiRecentRates(b.date));
+    parts.push('\n\nTHE LAST 45 DAYS, tab-separated. Blank means not logged:\n' + aiTrend(b.date, 45));
+    /* Week-level history. Without this an activity collapse measured in weeks
+       is invisible: 14 rows of daily data cannot show that walking went from
+       87 km a week to 31. */
+    parts.push('\n\nWEEK BY WEEK over the whole record:\n' + aiWeekly(b.date, 20));
+    /* Actual movements and loads. A volume total cannot reveal that the same
+       heavy lift has recurred five times in eight days. */
+    const td = aiTrainingDetail(b.date, 28);
+    if (td) parts.push('\n\nEVERY LOGGED SESSION, most recent last — date, type, then what was actually done:\n' + td);
+    const food = aiFoodVocabulary();
+    if (food) parts.push('\n\n' + food);
+    const proto = aiProtocol();
+    if (proto) parts.push('\n\n' + proto);
   }
   if (scope === 'full') {
     const gp = b.goalProgress;
