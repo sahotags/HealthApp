@@ -278,6 +278,109 @@ ul.pred li{margin-bottom:5px}
   .detail-in{grid-template-columns:1fr}
   .ribbon-wrap svg{height:130px}
 }
+/* ---------- visual refresh (added) ----------
+   Same structure, warmer surfaces and stronger accents. These override the
+   tokens above rather than replacing them, so nothing structural changes. */
+:root{
+  --canvas:#F4F1EC;            /* warm paper instead of cold grey-blue */
+  --surface:#FFFFFF;
+  --surface2:#FAF7F2;
+  --surface3:#EFEAE2;
+  --line:#DCD5CA;
+  --line-soft:#EBE6DD;
+  --ink:#1B1712;
+  --ink2:#5C5348;
+  --ink3:#918878;
+  --teal:#0C6B62;              /* deeper, more saturated */
+  --teal-soft:#DCEFEB;
+  --indigo:#3B4BA8;
+  --indigo-soft:#E4E7F8;
+  --amber:#9A6510;
+  --amber-soft:#FBEED2;
+  --crimson:#A81F41;
+  --crimson-soft:#FBE0E6;
+  --moss:#4A7A2B;
+  --moss-soft:#E6F0D9;
+  --r:14px;
+  --r-sm:9px;
+  --shadow:0 1px 2px rgba(27,23,18,.05), 0 10px 30px -14px rgba(27,23,18,.18);
+  --shadow-lift:0 2px 6px rgba(27,23,18,.07), 0 18px 40px -18px rgba(27,23,18,.26);
+}
+
+/* a soft warm wash so the page is not a flat slab */
+body{
+  background:
+    radial-gradient(900px 500px at 12% -8%, rgba(12,107,98,.07), transparent 60%),
+    radial-gradient(800px 460px at 92% 4%, rgba(59,75,168,.06), transparent 62%),
+    var(--canvas);
+  background-attachment:fixed;
+}
+
+/* cards get depth and a subtle top edge, so they read as objects not boxes */
+.card{
+  border-radius:var(--r);
+  box-shadow:var(--shadow);
+  border:1px solid var(--line-soft);
+  transition:box-shadow .2s ease, transform .2s ease;
+}
+.card:hover{ box-shadow:var(--shadow-lift); }
+.card-h{
+  border-bottom:1px solid var(--line-soft);
+  background:linear-gradient(180deg, var(--surface2), var(--surface));
+  border-radius:var(--r) var(--r) 0 0;
+}
+
+/* the header stops looking like a toolbar */
+.topbar{
+  background:linear-gradient(180deg,#FFFFFF, #FBF8F3);
+  border-bottom:1px solid var(--line-soft);
+  box-shadow:0 1px 0 rgba(27,23,18,.03), 0 8px 24px -20px rgba(27,23,18,.4);
+}
+
+/* the active tab earns its emphasis instead of being a black slab */
+.tabs button[aria-current="true"], nav.tabs button[aria-selected="true"]{
+  background:linear-gradient(180deg, var(--teal), #0A5A52);
+  color:#fff;
+  border-radius:var(--r-sm);
+  box-shadow:0 2px 8px -2px rgba(12,107,98,.5);
+}
+
+/* primary actions look pressable */
+.btn-primary{
+  background:linear-gradient(180deg, var(--teal), #0A5A52);
+  border-color:#0A5A52;
+  box-shadow:0 1px 2px rgba(12,107,98,.3), 0 6px 16px -8px rgba(12,107,98,.6);
+}
+.btn-primary:hover{ filter:brightness(1.06); }
+
+/* section numbers become badges rather than grey digits */
+.section-t .n, .fs-h .n{
+  background:var(--teal-soft); color:var(--teal);
+  border-radius:999px; padding:2px 9px; font-weight:600;
+}
+
+/* numbers are the point of this app, so let them carry weight */
+.metric .v, .big-num, .stat-v{ letter-spacing:-.02em; }
+
+/* pills and tags get a little more presence */
+.pill{ border-radius:999px; padding:2px 10px; font-weight:600; }
+
+/* inputs feel less like a form and more like fields */
+input,select,textarea{ border-radius:var(--r-sm); background:var(--surface2); }
+input:focus,select:focus,textarea:focus{
+  background:#fff; border-color:var(--teal);
+  box-shadow:0 0 0 3px var(--teal-soft);
+}
+
+/* the AI reading is the centrepiece — give it an accent edge */
+#aiPanel .card{ border-left:3px solid var(--teal); }
+.ai-md h2,.ai-md h3{ color:var(--teal); letter-spacing:.01em; }
+.ai-md b,.ai-md strong{ color:var(--ink); }
+
+/* tables breathe */
+th{ background:var(--surface2); letter-spacing:.06em; }
+tbody tr:hover{ background:var(--surface2); }
+
 /* ---------- voice entry (added) ---------- */
 #voicePanel{border:1px solid var(--line);border-radius:var(--r);background:var(--surface2);padding:12px;margin-bottom:14px}
 #voicePanel textarea{width:100%;min-height:64px;margin-top:8px}
@@ -653,10 +756,9 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
             </div>
           </fieldset>
           <div class="sticky-actions">
-            <button type="submit" class="btn btn-primary">Save day</button>
             <button type="button" class="btn" id="btnSaveNew">Save and start another</button>
             <button type="button" class="btn" id="btnRevert">Reset form</button>
-            <span class="hint" style="align-self:center">Changes save on their own — the button is just for reassurance.</span>
+            <span class="hint" style="align-self:center">Every change is saved as you type.</span>
             <button type="button" class="btn btn-danger" id="btnDelete" style="margin-left:auto">Delete this day</button>
           </div>
         </form>
@@ -3526,34 +3628,11 @@ const NutriCache = {
     if (!k) return null;
     if (m[k]) return m[k];
 
-    /* same food, different wording or quantity: match on the identifying words,
-       then rescale by quantity where both sides carry one. */
-    if (!this._stems) {
-      this._stems = {};
-      Object.keys(m).forEach(key => {
-        const st = this.stem(key);
-        if (st && !this._stems[st]) this._stems[st] = key;
-      });
-    }
-    const myStem = this.stem(text);
-    if (!myStem) return null;
-    const hitKey = this._stems[myStem];
-    if (!hitKey) return null;
-
-    const src = m[hitKey];
-    const qty = parseFloat(k) || null;
-    const srcQty = parseFloat(hitKey) || src.qty || null;
-    if (qty && srcQty && qty !== srcQty) {
-      const f = qty / srcQty;
-      return Object.assign({}, src, {
-        qty: qty, scaledFrom: hitKey,
-        kcal: Math.round((src.kcal || 0) * f),
-        protein: r1((src.protein || 0) * f), carbs: r1((src.carbs || 0) * f),
-        fat: r1((src.fat || 0) * f), sugar: r1((src.sugar || 0) * f),
-        fibre: r1((src.fibre || 0) * f)
-      });
-    }
-    return Object.assign({}, src, { matchedFrom: hitKey });
+    /* Deliberately EXACT matching only. Matching on word stems and rescaling by
+       quantity looked clever but guessed: "3 tbsp yogurt" would match a 200 g
+       yogurt entry and scale it by 3/200. That is where the inconsistent
+       numbers came from. If the text is not identical, ask the model. */
+    return null;
   },
 
   put(items) {
@@ -3848,9 +3927,18 @@ function aiUserPrompt(b, scope) {
     const proto = aiProtocol();
     if (proto) parts.push('\n\n' + proto);
     /* What was already prescribed, so today's advice is not a copy of it. */
-    const prev = (State.entries || []).filter(e => e.date < b.date && e.aiBrief && e.aiBrief.text)
-      .slice(0, 3)
-      .map(e => e.date + ': ' + String(e.aiBrief.text).replace(/\s+/g, ' ').slice(0, 400));
+    /* Briefings live in doc.aiNotes keyed by date, not on the entry. Reading
+       e.aiBrief found nothing, so the do-not-repeat instruction had no data
+       behind it and every day got the same prescription. */
+    const notes = (Repo.doc && Repo.doc.aiNotes) || {};
+    const prev = Object.keys(notes)
+      .filter(d => d < b.date && notes[d] && notes[d].text)
+      .sort().reverse().slice(0, 3)
+      .map(d => {
+        const t = String(notes[d].text);
+        const m = /##\s*Today's training([\s\S]*?)(?=\n##|$)/i.exec(t);
+        return d + ' prescribed: ' + (m ? m[1] : t).replace(/\s+/g, ' ').trim().slice(0, 500);
+      });
     if (prev.length) parts.push('\n\nWHAT YOU ALREADY TOLD THEM ON RECENT DAYS — do not repeat these prescriptions:\n' + prev.join('\n'));
   }
   if (scope === 'full') {
@@ -4020,6 +4108,22 @@ const dietEvalFresh = e => { const v = dietEval(e); return v && !v.stale ? v : n
 const workoutEvalFresh = e => { const v = workoutEval(e); return v && !v.stale ? v : null; };
 
 /* ---------- prompts ---------- */
+/* People often write the numbers themselves: "1 scoop musashi (30 gms protein)".
+   Those declared values are ground truth and must never be overridden by an
+   estimate — this is exactly why pasting the same text into a chat window
+   gives a consistent answer. */
+function declaredMacros(text) {
+  const out = {};
+  const s = String(text || '');
+  const grab = (re, key) => { const m = re.exec(s); if (m) out[key] = parseFloat(m[1]); };
+  grab(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?protein/i, 'protein');
+  grab(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?carb/i, 'carbs');
+  grab(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?fat/i, 'fat');
+  grab(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?sugar/i, 'sugar');
+  grab(/(\d+(?:\.\d+)?)\s*(?:kcal|cal|calories)/i, 'kcal');
+  return Object.keys(out).length ? out : null;
+}
+
 function dietEvalPrompt(e) {
   const meals = MEAL_KEYS.map(k => k + ': ' + (e[k] || '(nothing logged)')).join('\n');
   return [
@@ -4034,6 +4138,7 @@ function dietEvalPrompt(e) {
     '- Ignore anything that is a note rather than food (timings, targets, commentary) — list those in "ignored".',
     '- Supplements: include only if they carry meaningful energy or macros. Creatine, vitamins and magnesium do not.',
     '- Sodium in mg, everything else in grams. kcal as a whole number.',
+    declared.length ? 'VALUES THE CLIENT STATED THEMSELVES — use these exactly, do not re-estimate them:\n' + declared.join('\n') : '',
     '- confidence: "high" when the item and quantity are both clear, "medium" when the quantity is inferred, "low" when the food itself is ambiguous.',
     '- Australian foods and Indian home cooking are both likely. "Chai" means Indian milk tea with sugar unless stated otherwise.',
     '',
