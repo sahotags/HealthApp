@@ -381,6 +381,15 @@ input:focus,select:focus,textarea:focus{
 th{ background:var(--surface2); letter-spacing:.06em; }
 tbody tr:hover{ background:var(--surface2); }
 
+/* ---------- structured sets editor (added) ---------- */
+.sets-tbl{width:100%;border-collapse:separate;border-spacing:0 4px}
+.sets-tbl th{font-size:.64rem;padding:4px 6px;background:transparent;border:0}
+.sets-tbl td{padding:2px 4px;border:0;vertical-align:middle}
+.sets-tbl input,.sets-tbl select{padding:6px 8px;font-size:.85rem;margin:0}
+.sets-tbl tr{animation:dl-row .2s ease-out both}
+.sets-tbl td:first-child select{min-width:6.5em}
+#setsEditor{background:var(--surface2);border:1px solid var(--line-soft);border-radius:var(--r-sm);padding:10px}
+
 /* ---------- voice entry (added) ---------- */
 #voicePanel{border:1px solid var(--line);border-radius:var(--r);background:var(--surface2);padding:12px;margin-bottom:14px}
 #voicePanel textarea{width:100%;min-height:64px;margin-top:8px}
@@ -710,8 +719,12 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
                 <datalist id="exTypes"></datalist></div>
               <div class="f"><label for="e_km">Walk (km)</label><input id="e_km" name="walkKm" type="number" step="0.1" inputmode="decimal" placeholder="e.g. 5.0"></div>
               <div class="f"><label for="e_other">Other activity</label><input id="e_other" name="otherActivity" placeholder="Anything else physical…"></div>
-              <div class="f wide"><label for="e_exd">Workout detail</label>
-                <textarea id="e_exd" name="exerciseDetails" rows="4" placeholder="Sets, reps, holds, how it felt…"></textarea>
+              <div class="f wide"><label>Exercises</label>
+                <div id="setsEditor"></div>
+                <datalist id="exNames"></datalist>
+              </div>
+              <div class="f wide"><label for="e_exd">Workout detail <span class="hint">— generated from the rows above; edit directly if you prefer</span></label>
+                <textarea id="e_exd" name="exerciseDetails" rows="3" placeholder="Sets, reps, holds, how it felt…"></textarea>
                 <span class="hint" id="avoidHint"></span>
                 <div id="workoutEval"></div></div>
             </div>
@@ -5078,6 +5091,7 @@ function openEntry(id, dateHint) {
   $('#btnDelete').style.display = e ? '' : 'none';
   draftDirty = false; clearTimeout(draftTimer);
   updateSleepCalc(); checkAvoid(); renderFormNutrition(); renderEvalPanels();
+  try { Sets.load(src); } catch (e) { /* structured editor is optional */ }
   switchView('entry');
 }
 function updateGoalHint() {
@@ -6936,6 +6950,34 @@ function applyRoleVisibility() {
 }
 
 function wire() {
+  /* structured sets editor */
+  const setsHost = $('#setsEditor');
+  if (setsHost) {
+    setsHost.addEventListener('input', ev => {
+      const t = ev.target.closest('[data-sr]'); if (!t) return;
+      const i = +t.dataset.sr, k = t.dataset.k;
+      if (Sets.rows[i]) { Sets.rows[i][k] = t.value; }
+      const f = $('#form'); if (f && f.elements.exerciseDetails) f.elements.exerciseDetails.value = Sets.toText();
+      markDirty();
+    });
+    setsHost.addEventListener('change', ev => {
+      const t = ev.target.closest('[data-sr]'); if (!t) return;
+      const i = +t.dataset.sr, k = t.dataset.k;
+      if (Sets.rows[i]) Sets.rows[i][k] = t.value;
+      Sets.sync();
+    });
+    setsHost.addEventListener('click', ev => {
+      const del = ev.target.closest('[data-srdel]');
+      if (del) { Sets.remove(+del.dataset.srdel); return; }
+      if (ev.target.id === 'btnSetsAdd') { Sets.add(); return; }
+      if (ev.target.id === 'btnSetsType') {
+        const name = prompt('Name the new workout type');
+        if (name) { addWorkoutType(name); Sets.render(); }
+        return;
+      }
+    });
+  }
+
   /* voice entry */
   const vMic = $('#btnVoiceMic'), vGo = $('#btnVoiceGo'), vClr = $('#btnVoiceClear');
   if (vMic) {
@@ -7959,6 +8001,145 @@ async function applyMyLegacyProfile() {
 
 
 /* ============================================================================
+   STRUCTURED WORKOUT ENTRY — ADDED
+   A row per exercise: type, movement, sets, reps or duration, load, rest.
+
+   Design note. exerciseDetails is read in 31 places — volume parsing, the AI
+   prompts, evaluation signatures, the briefing. So the rows are the editor,
+   not the storage: every change regenerates exerciseDetails as text in the
+   format parseLine already understands. Nothing downstream needs to know this
+   exists, and the eight months of free-text history keeps working untouched.
+   ============================================================================ */
+const WORKOUT_TYPES_DEFAULT = ['Strength', 'ISO', 'HIIT', 'Cardio', 'Mobility', 'Walk', 'Rest'];
+
+function workoutTypes() {
+  const saved = (Repo.doc && Repo.doc.workoutTypes) || [];
+  const seen = {}, out = [];
+  WORKOUT_TYPES_DEFAULT.concat(saved).forEach(t => {
+    const k = String(t || '').trim();
+    if (k && !seen[k.toLowerCase()]) { seen[k.toLowerCase()] = 1; out.push(k); }
+  });
+  return out;
+}
+function addWorkoutType(name) {
+  const t = String(name || '').trim();
+  if (!t) return;
+  Repo.doc.workoutTypes = Repo.doc.workoutTypes || [];
+  if (!workoutTypes().some(x => x.toLowerCase() === t.toLowerCase())) {
+    Repo.doc.workoutTypes.push(t);
+    saveSoon();
+  }
+}
+
+const Sets = {
+  rows: [],
+
+  /* Parse existing free text back into rows where possible, so a day logged
+     before this existed can still be edited structurally. Anything that will
+     not parse is left in the text box untouched rather than mangled. */
+  fromText(text) {
+    const out = [];
+    String(text || '').split(/\n+/).forEach(line => {
+      const t = line.trim();
+      if (!t) return;
+      const row = { type: '', ex: '', sets: '', reps: '', load: '', rest: '', raw: t };
+      /* "Bench press 80kg 3x8 rest 90s" and similar */
+      const load = /(\d+(?:\.\d+)?)\s*kg/i.exec(t);
+      const sr = /(\d+)\s*(?:x|×)\s*(\d+)/i.exec(t);
+      const setsOnly = /(\d+)\s*sets?/i.exec(t);
+      const repsOnly = /(\d+)\s*reps?/i.exec(t);
+      const dur = /(\d+(?:\.\d+)?)\s*(s|sec|secs|seconds|min|mins|minutes)\b/i.exec(t);
+      const rest = /rest\s*(\d+(?:\.\d+)?)\s*(s|sec|secs|m|min|mins)?/i.exec(t);
+      if (sr) { row.sets = sr[1]; row.reps = sr[2]; }
+      else { if (setsOnly) row.sets = setsOnly[1]; if (repsOnly) row.reps = repsOnly[1]; }
+      if (!row.reps && dur) row.reps = dur[1] + (/^m/i.test(dur[2]) ? ' min' : ' s');
+      if (load) row.load = load[1];
+      if (rest) row.rest = rest[1] + (/^m/i.test(rest[2] || '') ? ' min' : ' s');
+      row.ex = t.replace(/(\d+(?:\.\d+)?)\s*kg/ig, '')
+               .replace(/(\d+)\s*(?:x|×)\s*(\d+)/ig, '')
+               .replace(/rest\s*\d+\s*\w*/ig, '')
+               .replace(/\b\d+\s*(sets?|reps?)\b/ig, '')
+               .replace(/[-–—,|]+/g, ' ').replace(/\s+/g, ' ').trim();
+      out.push(row);
+    });
+    return out;
+  },
+
+  /* Regenerate the text every downstream reader already understands.
+     Format matches what parseLine expects: "Movement 80kg 3x8". */
+  toText() {
+    return this.rows.filter(r => (r.ex || '').trim()).map(r => {
+      const bits = [r.ex.trim()];
+      if (r.load) bits.push(r.load + 'kg');
+      /* Duration work reads as "3 sets x 60 s", matching both the existing
+         history and what parseLine expects for time under tension. Rep work
+         stays in the compact "3x8" form. */
+      const isTime = /[a-z]/i.test(String(r.reps || ''));
+      if (r.sets && r.reps) bits.push(isTime ? r.sets + ' sets x ' + r.reps : r.sets + 'x' + r.reps);
+      else if (r.sets) bits.push(r.sets + ' sets');
+      else if (r.reps) bits.push(r.reps + ' reps');
+      if (r.rest) bits.push('rest ' + r.rest);
+      if (r.type) bits.push('(' + r.type + ')');
+      return bits.join(' ');
+    }).join('\n');
+  },
+
+  sync() {
+    const f = document.getElementById('form');
+    if (!f) return;
+    const box = f.elements.exerciseDetails;
+    if (box) { box.value = this.toText(); }
+    /* keep the structured version too, for future use and for the AI prompt */
+    try {
+      const e = State.entries.find(x => x.id === State.editingId);
+      if (e) e.exerciseRows = this.rows.filter(r => (r.ex || '').trim());
+    } catch (err) { /* new unsaved day */ }
+    markDirty();
+    this.render();
+  },
+
+  add(row) {
+    this.rows.push(row || { type: workoutTypes()[0] || '', ex: '', sets: '', reps: '', load: '', rest: '' });
+    this.sync();
+  },
+  remove(i) { this.rows.splice(i, 1); this.sync(); },
+
+  load(entry) {
+    const stored = entry && entry.exerciseRows;
+    this.rows = Array.isArray(stored) && stored.length
+      ? stored.map(r => Object.assign({ type: '', ex: '', sets: '', reps: '', load: '', rest: '' }, r))
+      : this.fromText(entry && entry.exerciseDetails);
+    this.render();
+  },
+
+  render() {
+    const host = document.getElementById('setsEditor');
+    if (!host) return;
+    const types = workoutTypes();
+    const opts = t => types.map(x =>
+      '<option value="' + esc(x) + '"' + (x === t ? ' selected' : '') + '>' + esc(x) + '</option>').join('');
+    const rows = this.rows.map((r, i) =>
+      '<tr>' +
+      '<td><select data-sr="' + i + '" data-k="type">' + opts(r.type) + '</select></td>' +
+      '<td><input data-sr="' + i + '" data-k="ex" value="' + esc(r.ex) + '" placeholder="Incline dumbbell press" list="exNames"></td>' +
+      '<td><input data-sr="' + i + '" data-k="sets" value="' + esc(r.sets) + '" inputmode="numeric" placeholder="3" style="width:4.5em"></td>' +
+      '<td><input data-sr="' + i + '" data-k="reps" value="' + esc(r.reps) + '" placeholder="8 or 45 s" style="width:6.5em"></td>' +
+      '<td><input data-sr="' + i + '" data-k="load" value="' + esc(r.load) + '" inputmode="decimal" placeholder="22" style="width:5em"></td>' +
+      '<td><input data-sr="' + i + '" data-k="rest" value="' + esc(r.rest) + '" placeholder="90 s" style="width:5.5em"></td>' +
+      '<td><button type="button" class="btn btn-sm" data-srdel="' + i + '" aria-label="Remove">×</button></td>' +
+      '</tr>').join('');
+    host.innerHTML =
+      '<div style="overflow-x:auto"><table class="tbl sets-tbl"><thead><tr>' +
+      '<th>Type</th><th>Exercise</th><th>Sets</th><th>Reps / time</th><th>kg</th><th>Rest</th><th></th>' +
+      '</tr></thead><tbody>' + (rows || '<tr><td colspan="7" class="muted" style="padding:14px">No exercises yet.</td></tr>') + '</tbody></table></div>' +
+      '<div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">' +
+      '<button type="button" class="btn btn-sm btn-primary" id="btnSetsAdd">Add exercise</button>' +
+      '<button type="button" class="btn btn-sm" id="btnSetsType">Add a new type…</button>' +
+      '<span class="hint" style="align-self:center">Saved as you type. The text below is generated from these rows.</span></div>';
+  }
+};
+
+/* ============================================================================
    VOICE ENTRY — ADDED
    Two ways in, because neither alone covers every device:
      1. Live microphone via the Web Speech API. Free, no server, but Safari's
@@ -8129,7 +8310,7 @@ const Voice = {
 };
 
 /* Exposed for debugging in the console. */
-window.App = { Account, AccountSource, applyMyLegacyProfile, AI, Voice, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
+window.App = { Account, AccountSource, applyMyLegacyProfile, AI, Voice, Sets, workoutTypes, addWorkoutType, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
   Repo, Config, State, FIELDS, LABELS, ALIASES, clean, touch, cat, catColor, sleepHours, napMin, akkLevel,
   avg, n1, shift, today, iso, fmtDateFull, sortEntries, dedupe, mergeEntries, mergeDocs, normaliseDoc, emptyDoc, docSize,
   csvParse, csvBuild, entriesAoa, rowsToEntries, medicalAoa, medicalFromAoa, parseDateCell, parseTimeCell, parseNumCell,
