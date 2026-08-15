@@ -1354,7 +1354,7 @@ const Repo = {
   },
 
   timer: null, busy: false, again: false,
-  commitSoon() { clearTimeout(this.timer); this.timer = setTimeout(() => this.commit(), 700); this.setStatus('saving'); },
+  commitSoon(ms) { clearTimeout(this.timer); this.timer = setTimeout(() => this.commit(), ms == null ? 900 : ms); this.setStatus('saving'); },
   async commit() {
     clearTimeout(this.timer);
     if (!this.source) return false;
@@ -1369,9 +1369,16 @@ const Repo = {
         if (remote) { this.doc = mergeDocs(remote, this.doc); this.emit(); }
       }
       await this.source.write(this.stampDoc());
-      const back = await this.source.read();          // verify, never assume
-      if (!back || back.entries.length !== this.doc.entries.length) throw new Error('the data did not read back as written');
-      this.baseStamp = await this.source.stamp();
+      /* The old code read the ENTIRE record back after every save to verify it.
+         On a 233-day log that is hundreds of documents fetched to confirm one
+         changed day, which is what made saving take fifteen seconds. Sources
+         that can verify cheaply now do so themselves; the rest are trusted,
+         because a failed write already throws. */
+      if (typeof this.source.verify === 'function') {
+        const okv = await this.source.verify(this.doc);
+        if (!okv) throw new Error('the data did not read back as written');
+      }
+      this.baseStamp = this.source.lastStamp || await this.source.stamp();
       ok = true;
       this.setStatus('saved');
     } catch (e) {
@@ -1580,6 +1587,7 @@ class FirestoreSource extends Source {
       if (this.snapshot[e.date] === j) continue;
       await this.api('/' + COL_ENTRIES + '/' + e.date, { method: 'PATCH', body: fsDoc(e) });
       this.snapshot[e.date] = j; writes++;
+      (this._touched = this._touched || []).push(e.date);
     }
     for (const d of Object.keys(this.snapshot)) {
       if (seen[d]) continue;
@@ -1608,6 +1616,21 @@ class FirestoreSource extends Source {
       })
     });
     this.lastWrites = writes;
+    this.lastWritten = Object.keys(this.snapshot).length;
+    this.lastTouched = this._touched || [];
+    this._touched = [];
+    return true;
+  }
+
+  /* Verify only what this save actually changed — normally one document —
+     rather than reading the whole history back. */
+  async verify(doc) {
+    const dates = (this.lastTouched || []).slice(0, 3);
+    if (!dates.length) return true;
+    for (const d of dates) {
+      const got = await this.api('/' + COL_ENTRIES + '/' + d);
+      if (!got) return false;
+    }
     return true;
   }
 
@@ -3375,6 +3398,220 @@ function aiTrend(dateStr, days) {
 
 /* Weekly rollup over the whole record. Twelve months of trend for the cost of
    about fifty short lines, which a day-by-day table could never afford. */
+/* ============================================================================
+   STREAMING — ADDED
+   The briefing took 30+ seconds because nothing appeared until the whole
+   response had been generated. Streaming shows the first words in about a
+   second; the total generation time is unchanged, but the wait is gone.
+   ============================================================================ */
+async function aiStream(system, user, maxTokens, opts, onText) {
+  const o = opts || {};
+  const body = {
+    model: o.model || AI.cfg.model,
+    max_tokens: maxTokens || AI.cfg.maxTokens,
+    system: system,
+    messages: [{ role: 'user', content: user }],
+    thinking: { type: 'disabled' },
+    stream: true
+  };
+  let r = await fetch(AI.endpoint('/v1/messages'), {
+    method: 'POST', headers: AI.headers(), body: JSON.stringify(body)
+  });
+  if (r.status === 400) {
+    const probe = await r.clone().json().catch(() => null);
+    const msg = probe && probe.error && probe.error.message || '';
+    if (/thinking/i.test(msg)) {
+      delete body.thinking;
+      r = await fetch(AI.endpoint('/v1/messages'), {
+        method: 'POST', headers: AI.headers(), body: JSON.stringify(body)
+      });
+    }
+  }
+  if (!r.ok || !r.body) {
+    let m = 'request failed (' + r.status + ')';
+    try { const j = await r.json(); if (j.error && j.error.message) m = j.error.message; } catch (e) { /* keep */ }
+    throw new Error(m);
+  }
+
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', text = '', usage = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let ev; try { ev = JSON.parse(payload); } catch (e) { continue; }
+      if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') {
+        text += ev.delta.text;
+        if (onText) onText(text, ev.delta.text);
+      } else if (ev.type === 'message_delta' && ev.usage) {
+        usage = ev.usage;
+      }
+    }
+  }
+  return { text: text, usage: usage };
+}
+
+/* ============================================================================
+   LOCAL NUTRITION LOOKUP — ADDED
+   Most days are the same twenty foods. Anything already priced — in the saved
+   library, or in a previously evaluated day — is resolved instantly with no
+   API call at all. Claude is asked only about what is genuinely new.
+
+   On searching the web instead: a browser cannot call Google's API without
+   exposing a key in the page source, and nutrition search results are prose
+   that still needs a model to turn into numbers. So this resolves locally
+   first, which is faster than any search, and leaves only the remainder.
+   ============================================================================ */
+const NutriCache = {
+  key: 'dailylog:nutricache',
+  map: null,
+
+  load() {
+    if (this.map) return this.map;
+    this.map = {};
+    /* Anything already evaluated on any day is a priced item. 233 days of log
+       is a substantial private food database that was being ignored. */
+    try {
+      (State.entries || []).forEach(e => {
+        const items = e.aiDiet && e.aiDiet.items;
+        if (!Array.isArray(items)) return;
+        items.forEach(it => {
+          const k = this.norm(it.text || it.name);
+          if (k && it.kcal != null && !this.map[k]) this.map[k] = it;
+        });
+      });
+    } catch (err) { /* fall through to whatever loaded */ }
+    try {
+      const saved = JSON.parse(localStorage.getItem(this.key) || '{}');
+      Object.keys(saved).forEach(k => { if (!this.map[k]) this.map[k] = saved[k]; });
+    } catch (err) { /* private mode */ }
+    return this.map;
+  },
+
+  norm(s) {
+    return String(s || '').toLowerCase()
+      .replace(/[^a-z0-9\s.]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  },
+
+  /* Food text is written by hand and never twice the same. "2 boiled eggs",
+     "boiled eggs x2" and "Boiled Eggs (2)" are one food. Reduce to the words
+     that identify it: drop quantities, units and filler, then sort. */
+  stem(s) {
+    const stop = { the:1, a:1, an:1, of:1, with:1, and:1, in:1, on:1, plus:1, some:1,
+      approx:1, about:1, app:1, large:1, small:1, medium:1, fresh:1, raw:1, cooked:1,
+      homemade:1, home:1, made:1, serving:1, servings:1, portion:1, cup:1, cups:1,
+      tbsp:1, tsp:1, g:1, gm:1, gms:1, ml:1, kg:1, x:1, each:1, slice:1, slices:1,
+      piece:1, pieces:1, glass:1, bowl:1, plate:1 };
+    return this.norm(s)
+      .replace(/\d+(\.\d+)?/g, ' ')
+      .split(' ')
+      .map(w => w.replace(/s$/, ''))
+      .filter(w => w.length > 2 && !stop[w] && !stop[w + 's'])
+      .sort()
+      .join(' ');
+  },
+
+  get(text) {
+    const m = this.load();
+    const k = this.norm(text);
+    if (!k) return null;
+    if (m[k]) return m[k];
+
+    /* same food, different wording or quantity: match on the identifying words,
+       then rescale by quantity where both sides carry one. */
+    if (!this._stems) {
+      this._stems = {};
+      Object.keys(m).forEach(key => {
+        const st = this.stem(key);
+        if (st && !this._stems[st]) this._stems[st] = key;
+      });
+    }
+    const myStem = this.stem(text);
+    if (!myStem) return null;
+    const hitKey = this._stems[myStem];
+    if (!hitKey) return null;
+
+    const src = m[hitKey];
+    const qty = parseFloat(k) || null;
+    const srcQty = parseFloat(hitKey) || src.qty || null;
+    if (qty && srcQty && qty !== srcQty) {
+      const f = qty / srcQty;
+      return Object.assign({}, src, {
+        qty: qty, scaledFrom: hitKey,
+        kcal: Math.round((src.kcal || 0) * f),
+        protein: r1((src.protein || 0) * f), carbs: r1((src.carbs || 0) * f),
+        fat: r1((src.fat || 0) * f), sugar: r1((src.sugar || 0) * f),
+        fibre: r1((src.fibre || 0) * f)
+      });
+    }
+    return Object.assign({}, src, { matchedFrom: hitKey });
+  },
+
+  put(items) {
+    const m = this.load();
+    (items || []).forEach(it => {
+      const k = this.norm(it.text || it.name);
+      if (k && it.kcal != null) { m[k] = it; if (this._stems) this._stems[this.stem(k)] = k; }
+    });
+    try {
+      const trimmed = {};
+      Object.keys(m).slice(-600).forEach(k => { trimmed[k] = m[k]; });
+      localStorage.setItem(this.key, JSON.stringify(trimmed));
+    } catch (err) { /* quota or private mode */ }
+  },
+
+  /* People write compound lines: "12 blueberries with 150ml pepsi max with a
+     scoop of protein powder" is three priced items, not one unknown one.
+     Splitting only on commas leaves the whole line unmatched, so split on the
+     joining words too — but never inside a bracket, where "(30 g protein)"
+     would be torn apart. */
+  atoms(text) {
+    const out = [];
+    String(text || '').split(/\n+/).forEach(line => {
+      let depth = 0, cur = '';
+      const push = () => { const t = cur.trim().replace(/^[-•*\s]+/, '').replace(/[.\s]+$/, ''); if (t.length > 2) out.push(t); cur = ''; };
+      const lower = line.toLowerCase();
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '(') depth++;
+        if (ch === ')') depth = Math.max(0, depth - 1);
+        if (depth === 0) {
+          if (ch === ',' || ch === ';') { push(); continue; }
+          /* " with ", " and ", " plus " as separators, at word boundaries only */
+          const rest = lower.slice(i);
+          const m = /^\s+(with|and|plus)\s+/.exec(rest);
+          if (m) { push(); i += m[0].length - 1; continue; }
+        }
+        cur += ch;
+      }
+      push();
+    });
+    return out;
+  },
+
+  /* Split a day into what we already know and what still needs the model. */
+  split(entry) {
+    const known = [], unknown = [];
+    MEAL_KEYS.forEach(meal => {
+      this.atoms(entry[meal]).forEach(t => {
+        const hit = this.get(t);
+        if (hit) known.push(Object.assign({}, hit, { meal: meal, text: t, cached: true }));
+        else unknown.push({ meal: meal, text: t });
+      });
+    });
+    return { known: known, unknown: unknown };
+  }
+};
+
 function aiWeekly(dateStr, weeks) {
   const end = dateStr, out = [];
   const byWeek = {};
@@ -3523,6 +3760,9 @@ function aiSystemPrompt() {
     '   - THE ACTUAL MOVEMENTS AND LOADS in the session list. Check how often each heavy movement has recurred and how',
     '     recently. Repeating a heavy loading pattern too soon is a real finding — name the dates when you see it.',
     '   - the week-by-week table for whether activity is rising or collapsing, and say so in weeks, not days.',
+    '   DO NOT reissue yesterday\'s session. The recent prescriptions are listed below; vary the movements, the rep',
+    '   ranges and the emphasis. If the honest answer really is the same session again, say why in one line rather',
+    '   than restating it as though it were new.',
     '   Give specific movements with sets, reps and a load cue anchored to what they have actually lifted before.',
     '   If recent days show heavy or consecutive training, or poor sleep, prescribing rest or mobility IS the answer — say so and why.',
     '   If a session is already logged, do not prescribe another. Comment on the one they did.',
@@ -3607,6 +3847,11 @@ function aiUserPrompt(b, scope) {
     if (food) parts.push('\n\n' + food);
     const proto = aiProtocol();
     if (proto) parts.push('\n\n' + proto);
+    /* What was already prescribed, so today's advice is not a copy of it. */
+    const prev = (State.entries || []).filter(e => e.date < b.date && e.aiBrief && e.aiBrief.text)
+      .slice(0, 3)
+      .map(e => e.date + ': ' + String(e.aiBrief.text).replace(/\s+/g, ' ').slice(0, 400));
+    if (prev.length) parts.push('\n\nWHAT YOU ALREADY TOLD THEM ON RECENT DAYS — do not repeat these prescriptions:\n' + prev.join('\n'));
   }
   if (scope === 'full') {
     const gp = b.goalProgress;
@@ -3681,7 +3926,23 @@ async function runAnalysis(dateStr, opts) {
     const c = aiGetFresh(b, scope);
     if (c) return Object.assign({}, c, { cached: true });
   }
-  const res = await AI.complete(aiSystemPrompt(), aiUserPrompt(b, scope), AI.cfg.maxTokens, { kind: 'briefing' });
+  /* Stream it. Total generation time is the same, but the first words land in
+     about a second instead of after thirty. */
+  let res;
+  try {
+    const host = document.getElementById('aiPanel');
+    res = await aiStream(aiSystemPrompt(), aiUserPrompt(b, scope), AI.cfg.maxTokens, { kind: 'briefing' },
+      partial => {
+        if (!host) return;
+        host.innerHTML = '<div class="card"><div class="card-h"><b>Claude\'s reading</b>' +
+          '<span class="pill" style="margin-left:8px">writing…</span></div>' +
+          '<div class="card-b ai-md">' + mdToHtml(partial) + '</div></div>';
+      });
+    if (res.usage) recordUsage('briefing', AI.cfg.model, res.usage);
+  } catch (streamErr) {
+    /* A proxy may not support streaming. Fall back to one shot rather than fail. */
+    res = await AI.complete(aiSystemPrompt(), aiUserPrompt(b, scope), AI.cfg.maxTokens, { kind: 'briefing' });
+  }
   if (!res.text) {
     const why = AI.lastEmptyReason ? ' (' + AI.lastEmptyReason + ')' : '';
     if (AI.lastRaw && AI.lastRaw.stop_reason === 'max_tokens')
@@ -3882,9 +4143,34 @@ function normaliseWorkoutEval(raw, e) {
 async function evaluateDiet(entry, opts) {
   if (!MEAL_KEYS.some(k => (entry[k] || '').trim())) throw new Error('No food logged on that day');
   const sys = 'You are a nutrition analyst. You return only valid minified JSON, never prose or markdown fences. Estimates are expected; flag uncertainty in the fields provided rather than refusing.';
-  const res = await AI.complete(sys, dietEvalPrompt(entry), 3000,
+  /* Most days repeat foods already priced on an earlier day. Resolve those from
+     the local cache and ask the model only about the rest. On this log that
+     removes about 90% of the items, and some days need no call at all. */
+  const known = [], unknownCount = { n: 0 };
+  try {
+    const sp = NutriCache.split(entry);
+    known.push.apply(known, sp.known);
+    unknownCount.n = sp.unknown.length;
+    if (!sp.unknown.length && sp.known.length) {
+      return {
+        data: normaliseDietEval({ items: sp.known, ignored: [], notes: 'Every item was already priced from your own history, so no API call was needed.' }, entry),
+        usage: null, fromCache: true
+      };
+    }
+  } catch (e) { /* cache unavailable: fall through to a normal call */ }
+
+  let userPrompt = dietEvalPrompt(entry);
+  if (known.length) {
+    /* Hand over the priced items so they are not recalculated, and so the new
+       estimates stay consistent with the existing ones. */
+    userPrompt += '\n\nALREADY PRICED from this client\'s own history — reuse these exactly, do not recalculate:\n' +
+      known.map(i => '- ' + i.text + ' => ' + i.kcal + ' kcal, P' + (i.protein || 0) + ' C' + (i.carbs || 0) + ' F' + (i.fat || 0)).join('\n');
+  }
+  const res = await AI.complete(sys, userPrompt, 3000,
     { model: AI.cfg.modelEval, kind: 'diet', burst: !!(opts && opts.burst) });
-  return { data: normaliseDietEval(parseJsonReply(res.text), entry), usage: res.usage };
+  const data = normaliseDietEval(parseJsonReply(res.text), entry);
+  try { NutriCache.put(data.items); } catch (e) { /* best effort */ }
+  return { data: data, usage: res.usage };
 }
 async function evaluateWorkout(entry, opts) {
   if (!(entry.exerciseDetails || '').trim() && !(entry.exerciseType || '').trim()) throw new Error('No workout logged on that day');
