@@ -738,6 +738,7 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
               <div class="f"><label for="e_d">Dinner</label><textarea id="e_d" name="dinner" rows="3"></textarea></div>
               <div class="f wide" id="formNut"></div>
               <div class="f wide" id="dietEval"></div>
+              <div class="f wide"><div id="autoNut"></div></div>
               <div class="f wide"><label for="e_s">Supplements</label><textarea id="e_s" name="supplements" rows="2" placeholder="Name, dose and time taken…"></textarea></div>
             </div>
           </fieldset>
@@ -3641,11 +3642,26 @@ const NutriCache = {
     if (!k) return null;
     if (m[k]) return m[k];
 
-    /* Deliberately EXACT matching only. Matching on word stems and rescaling by
-       quantity looked clever but guessed: "3 tbsp yogurt" would match a 200 g
-       yogurt entry and scale it by 3/200. That is where the inconsistent
-       numbers came from. If the text is not identical, ask the model. */
-    return null;
+    /* Match on the identifying words, but ONLY when the stated quantity is the
+       same (or neither states one). Rescaling a cached item by a quantity ratio
+       is what produced the inconsistent numbers before — "3 tbsp yogurt" being
+       scaled off a 200 g entry. Same words plus same amount is genuinely the
+       same item; anything else goes to a live lookup. */
+    if (!this._stems) {
+      this._stems = {};
+      Object.keys(m).forEach(key => {
+        const st = this.stem(key);
+        if (st && !this._stems[st]) this._stems[st] = key;
+      });
+    }
+    const myStem = this.stem(text);
+    if (!myStem) return null;
+    const hitKey = this._stems[myStem];
+    if (!hitKey) return null;
+
+    const qtyOf = str => { const q = /(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|ml|l|tbsp|tsp|scoop|scoops|slice|slices|cup|cups)?/.exec(String(str)); return q && q[1] ? q[1] + (q[2] || '') : ''; };
+    if (qtyOf(k) !== qtyOf(hitKey)) return null;      /* different amount: do not guess */
+    return Object.assign({}, m[hitKey], { matchedFrom: hitKey });
   },
 
   put(items) {
@@ -4139,6 +4155,16 @@ function declaredMacros(text) {
 
 function dietEvalPrompt(e) {
   const meals = MEAL_KEYS.map(k => k + ': ' + (e[k] || '(nothing logged)')).join('\n');
+  /* Numbers the client wrote themselves are ground truth. Collect them per line
+     so the model is told to use them verbatim rather than re-estimating. */
+  const declared = [];
+  MEAL_KEYS.concat(['supplements']).forEach(k => {
+    String(e[k] || '').split(/[\n,;]+/).forEach(line => {
+      const d = declaredMacros(line);
+      if (d) declared.push('- "' + line.trim().slice(0, 80) + '" => ' +
+        Object.keys(d).map(x => x + ' ' + d[x] + (x === 'kcal' ? '' : ' g')).join(', '));
+    });
+  });
   return [
     'Break this day of eating into individual food items with estimated nutrition.',
     '',
@@ -5092,6 +5118,7 @@ function openEntry(id, dateHint) {
   draftDirty = false; clearTimeout(draftTimer);
   updateSleepCalc(); checkAvoid(); renderFormNutrition(); renderEvalPanels();
   try { Sets.load(src); } catch (e) { /* structured editor is optional */ }
+  try { AutoNut.reset(); AutoNut._last = null; } catch (e) { /* optional */ }
   switchView('entry');
 }
 function updateGoalHint() {
@@ -6950,6 +6977,20 @@ function applyRoleVisibility() {
 }
 
 function wire() {
+  /* Automatic nutrition when you leave a food field. No Claude call. */
+  MEAL_KEYS.forEach(k => {
+    const f = $('#form');
+    const el = f && f.elements[k];
+    if (!el) return;
+    el.addEventListener('blur', () => {
+      const v = (el.value || '').trim();
+      AutoNut._last = AutoNut._last || {};
+      if (AutoNut._last[k] === v) return;      /* nothing changed since last time */
+      AutoNut._last[k] = v;
+      AutoNut.run(k, v);
+    });
+  });
+
   /* structured sets editor */
   const setsHost = $('#setsEditor');
   if (setsHost) {
@@ -8001,6 +8042,193 @@ async function applyMyLegacyProfile() {
 
 
 /* ============================================================================
+   AUTOMATIC NUTRITION ON BLUR — ADDED
+
+   Runs when you leave a food field. No Claude call, so it is free and instant.
+   Four tiers, cheapest first:
+
+     1. Numbers you wrote yourself   — "1 scoop (30 gms protein)". Ground truth.
+     2. Your own history             — anything priced on an earlier day.
+     3. Open Food Facts              — free, no API key, CORS-enabled, and
+                                       strong on branded items, which is most
+                                       of what gets logged by name.
+     4. Left unresolved              — shown as "needs Claude", and the Claude
+                                       button handles those on demand.
+
+   On why not Google: their AI and search APIs both need a key, and a key in a
+   static page is public. Open Food Facts needs no key at all. Its weakness is
+   generic home cooking, which is exactly what tier 2 already covers for you.
+   ============================================================================ */
+const AutoNut = {
+  pending: {},
+  results: {},          /* meal -> { items, at } */
+  offCache: {},
+
+  /* Open Food Facts, per 100 g, normalised to the app's shape. */
+  async offLookup(term) {
+    const key = term.toLowerCase().trim();
+    if (this.offCache[key] !== undefined) return this.offCache[key];
+    const url = 'https://world.openfoodfacts.org/cgi/search.pl?search_terms=' +
+      encodeURIComponent(term) + '&search_simple=1&action=process&json=1&page_size=5' +
+      '&fields=product_name,brands,nutriments,quantity';
+    let hit = null;
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 6000);
+      const r = await fetch(url, { signal: ctl.signal });
+      clearTimeout(timer);
+      if (r.ok) {
+        const j = await r.json();
+        const p = (j.products || []).find(x => x && x.nutriments &&
+          (x.nutriments['energy-kcal_100g'] != null || x.nutriments.energy_100g != null));
+        if (p) {
+          const n = p.nutriments;
+          const kcal100 = n['energy-kcal_100g'] != null ? n['energy-kcal_100g']
+            : (n.energy_100g != null ? n.energy_100g / 4.184 : null);
+          if (kcal100 != null) {
+            hit = {
+              name: [p.brands ? String(p.brands).split(',')[0].trim() : '', p.product_name].filter(Boolean).join(' ').trim(),
+              per100: {
+                kcal: kcal100, protein: n.proteins_100g || 0, carbs: n.carbohydrates_100g || 0,
+                fat: n.fat_100g || 0, sugar: n.sugars_100g || 0, fibre: n.fiber_100g || 0
+              }
+            };
+          }
+        }
+      }
+    } catch (e) { hit = null; }   /* offline, blocked, or slow: fall through quietly */
+    this.offCache[key] = hit;
+    return hit;
+  },
+
+  /* How much of this item is there? Returns grams, or null when unstated. */
+  grams(text) {
+    const t = String(text || '').toLowerCase();
+    let m = /(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|grams?)\b/.exec(t);
+    if (m) return parseFloat(m[1]) * (/^kg/.test(m[2]) ? 1000 : 1);
+    m = /(\d+(?:\.\d+)?)\s*(l|ml)\b/.exec(t);
+    if (m) return parseFloat(m[1]) * (/^l$/.test(m[2]) ? 1000 : 1);   /* 1 ml ≈ 1 g */
+    return null;
+  },
+
+  async resolveLine(text, meal) {
+    const t = String(text || '').trim();
+    if (t.length < 3) return null;
+
+    /* 1. what the client stated wins outright */
+    const dec = (typeof declaredMacros === 'function') ? declaredMacros(t) : null;
+
+    /* 2. their own history */
+    let cached = null;
+    try { cached = NutriCache.get(t); } catch (e) { cached = null; }
+    if (cached) {
+      const item = Object.assign({ meal: meal, text: t, source: 'history' }, cached);
+      if (dec) Object.keys(dec).forEach(k => { item[k] = dec[k]; item.source = 'stated'; });
+      return item;
+    }
+
+    /* 3. Open Food Facts */
+    const cleaned = t.replace(/\([^)]*\)/g, ' ')
+      .replace(/\d+(\.\d+)?\s*(kg|g|gm|gms|grams?|ml|l|tbsp|tsp|scoops?|cups?|slices?)\b/gi, ' ')
+      .replace(/\b(of|a|an|the|with|and)\b/gi, ' ')
+      .replace(/\s+/g, ' ').trim();
+    const off = cleaned.length > 2 ? await this.offLookup(cleaned) : null;
+    if (off) {
+      const g = this.grams(t);
+      const f = (g != null ? g : 100) / 100;
+      const item = {
+        meal: meal, text: t, name: off.name, source: 'openfoodfacts',
+        assumed: g == null,
+        kcal: Math.round(off.per100.kcal * f),
+        protein: r1(off.per100.protein * f), carbs: r1(off.per100.carbs * f),
+        fat: r1(off.per100.fat * f), sugar: r1(off.per100.sugar * f), fibre: r1(off.per100.fibre * f)
+      };
+      if (dec) Object.keys(dec).forEach(k => { item[k] = dec[k]; item.source = 'stated'; });
+      return item;
+    }
+
+    /* 4. stated values alone are still worth keeping */
+    if (dec) {
+      return Object.assign({ meal: meal, text: t, source: 'stated', name: t.slice(0, 40),
+        kcal: 0, protein: 0, carbs: 0, fat: 0, sugar: 0, fibre: 0 }, dec);
+    }
+    return { meal: meal, text: t, unresolved: true };
+  },
+
+  async run(meal, text) {
+    const lines = (typeof NutriCache !== 'undefined' && NutriCache.atoms)
+      ? NutriCache.atoms(text)
+      : String(text || '').split(/[\n,;]+/).map(s => s.trim()).filter(s => s.length > 2);
+    if (!lines.length) { delete this.results[meal]; this.paint(); return; }
+
+    this.pending[meal] = true; this.paint();
+    const items = [];
+    for (const line of lines) {
+      try { const it = await this.resolveLine(line, meal); if (it) items.push(it); }
+      catch (e) { items.push({ meal: meal, text: line, unresolved: true }); }
+    }
+    delete this.pending[meal];
+    this.results[meal] = { items: items, at: Date.now() };
+    /* Cache whatever resolved, so the next day is instant. */
+    try { NutriCache.put(items.filter(i => !i.unresolved && i.kcal != null)); } catch (e) { /* best effort */ }
+    this.paint();
+  },
+
+  totals() {
+    const t = { kcal: 0, protein: 0, carbs: 0, fat: 0, sugar: 0, fibre: 0 };
+    let unresolved = 0;
+    Object.keys(this.results).forEach(m => {
+      this.results[m].items.forEach(i => {
+        if (i.unresolved) { unresolved++; return; }
+        t.kcal += i.kcal || 0; t.protein += i.protein || 0; t.carbs += i.carbs || 0;
+        t.fat += i.fat || 0; t.sugar += i.sugar || 0; t.fibre += i.fibre || 0;
+      });
+    });
+    Object.keys(t).forEach(k => t[k] = k === 'kcal' ? Math.round(t[k]) : r1(t[k]));
+    return { totals: t, unresolved: unresolved };
+  },
+
+  paint() {
+    const host = document.getElementById('autoNut');
+    if (!host) return;
+    const busy = Object.keys(this.pending).length;
+    const all = [];
+    Object.keys(this.results).forEach(m => all.push.apply(all, this.results[m].items));
+    if (!all.length && !busy) { host.innerHTML = ''; return; }
+
+    const sum = this.totals();
+    const badge = { stated: 'ok', history: 'ok', openfoodfacts: 'info' };
+    const rows = all.map(i => i.unresolved
+      ? '<li><span class="muted">' + esc(i.text.slice(0, 46)) + '</span> <span class="pill" style="background:var(--amber-soft);color:var(--amber)">needs Claude</span></li>'
+      : '<li><b>' + esc((i.name || i.text).slice(0, 40)) + '</b> ' +
+        '<span class="mono">' + (i.kcal || 0) + ' kcal · P' + (i.protein || 0) + '</span> ' +
+        '<span class="pill" style="background:var(--' + (i.source === 'openfoodfacts' ? 'indigo' : 'teal') + '-soft);color:var(--' + (i.source === 'openfoodfacts' ? 'indigo' : 'teal') + ')">' +
+        (i.source === 'stated' ? 'your figures' : i.source === 'history' ? 'from your log' : 'Open Food Facts') + '</span>' +
+        (i.assumed ? ' <span class="hint">portion assumed</span>' : '') + '</li>').join('');
+
+    host.innerHTML =
+      '<div class="card" style="margin-top:10px"><div class="card-h" style="padding:8px 12px">' +
+      '<b style="font-size:.86rem">Running estimate</b>' +
+      (busy ? '<span class="pill" style="margin-left:8px">checking…</span>' : '') +
+      '<span class="hint" style="margin-left:auto">no API cost</span></div>' +
+      '<div class="card-b" style="padding:10px 12px">' +
+      '<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+      '<span class="pill mono">' + sum.totals.kcal + ' kcal</span>' +
+      '<span class="pill mono">P ' + sum.totals.protein + ' g</span>' +
+      '<span class="pill mono">C ' + sum.totals.carbs + ' g</span>' +
+      '<span class="pill mono">F ' + sum.totals.fat + ' g</span>' +
+      '<span class="pill mono">sugar ' + sum.totals.sugar + ' g</span></div>' +
+      '<ul style="margin:0;padding-left:16px;font-size:.82rem;line-height:1.7">' + rows + '</ul>' +
+      (sum.unresolved
+        ? '<p class="hint" style="margin:8px 0 0">' + sum.unresolved + ' item(s) could not be priced automatically. Use “Evaluate with Claude” for those.</p>'
+        : '<p class="hint" style="margin:8px 0 0">Everything priced without an API call. Claude evaluation is still available if you want a second opinion.</p>') +
+      '</div></div>';
+  },
+
+  reset() { this.results = {}; this.pending = {}; this.paint(); }
+};
+
+/* ============================================================================
    STRUCTURED WORKOUT ENTRY — ADDED
    A row per exercise: type, movement, sets, reps or duration, load, rest.
 
@@ -8310,7 +8538,7 @@ const Voice = {
 };
 
 /* Exposed for debugging in the console. */
-window.App = { Account, AccountSource, applyMyLegacyProfile, AI, Voice, Sets, workoutTypes, addWorkoutType, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
+window.App = { Account, AccountSource, applyMyLegacyProfile, AI, Voice, Sets, AutoNut, workoutTypes, addWorkoutType, derivePin, validatePin, pinPhone, migrateLegacyFirestore,
   Repo, Config, State, FIELDS, LABELS, ALIASES, clean, touch, cat, catColor, sleepHours, napMin, akkLevel,
   avg, n1, shift, today, iso, fmtDateFull, sortEntries, dedupe, mergeEntries, mergeDocs, normaliseDoc, emptyDoc, docSize,
   csvParse, csvBuild, entriesAoa, rowsToEntries, medicalAoa, medicalFromAoa, parseDateCell, parseTimeCell, parseNumCell,
