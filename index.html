@@ -3440,6 +3440,82 @@ function resetUsage() {
 
 /* A compact, factual account of one day. Everything here is either logged by
    the user or computed by this app. */
+/* ============================================================================
+   NUTRITION CORRECTION FROM THE BRIEFING — ADDED
+
+   The briefing re-derives the day's intake from the meal text rather than
+   trusting the running estimate, and returns its figures on a marker line.
+   When those differ materially from what is stored, the stored figures are
+   replaced, because the briefing had the full meal text and the estimate is
+   built from whatever the local lookup happened to recognise.
+
+   The marker line is stripped before the prose is displayed or cached, so the
+   reader never sees it.
+   ============================================================================ */
+const CORRECTION_RE = /NUTRITION_CORRECTION\s*=\s*(\{[\s\S]*?\})\s*$/m;
+
+function extractNutritionCorrection(text) {
+  const m = CORRECTION_RE.exec(String(text || ''));
+  if (!m) return { text: text, correction: null };
+  let parsed = null;
+  try { parsed = JSON.parse(m[1]); } catch (e) { parsed = null; }
+  const cleaned = String(text).replace(CORRECTION_RE, '').replace(/\s+$/, '');
+  if (!parsed || typeof parsed !== 'object') return { text: cleaned, correction: null };
+  const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+  const out = {
+    kcal: num(parsed.kcal), protein: num(parsed.protein), carbs: num(parsed.carbs),
+    sugar: num(parsed.sugar), fat: num(parsed.fat), fibre: num(parsed.fibre),
+    confidence: String(parsed.confidence || 'medium'),
+    note: String(parsed.note || '').slice(0, 200)
+  };
+  if (out.kcal == null) return { text: cleaned, correction: null };
+  return { text: cleaned, correction: out };
+}
+
+/* Material means worth acting on: more than 10% or 80 kcal on energy, or more
+   than 10 g of protein. Below that the two are the same answer with rounding. */
+function correctionIsMaterial(prior, corr) {
+  if (!corr) return false;
+  if (!prior || !prior.hasFood) return true;
+  const p = prior.totals;
+  const dk = Math.abs((corr.kcal || 0) - (p.kcal || 0));
+  const dp = Math.abs((corr.protein || 0) - (p.protein || 0));
+  const relK = p.kcal ? dk / p.kcal : 1;
+  return dk > 80 || relK > 0.10 || dp > 10;
+}
+
+/* Write the corrected totals into the entry as a diet evaluation, so every
+   downstream reader — dashboard, goal check, weekly averages — picks it up. */
+function applyNutritionCorrection(entry, corr, prior) {
+  const items = [{
+    name: 'Whole day, re-derived by Claude', text: 'briefing correction',
+    meal: 'lunch', qty: 1, unit: 'day',
+    kcal: Math.round(corr.kcal || 0), protein: corr.protein || 0, carbs: corr.carbs || 0,
+    sugar: corr.sugar || 0, fat: corr.fat || 0, fibre: corr.fibre || 0, sodium: 0,
+    confidence: corr.confidence, assumed: false
+  }];
+  const data = normaliseDietEval({ items: items, ignored: [], notes: corr.note || 'Re-derived during the daily briefing.' }, entry);
+  data.source = 'briefing';
+  data.supersededTotals = prior && prior.hasFood ? {
+    kcal: Math.round(prior.totals.kcal), protein: Math.round(prior.totals.protein)
+  } : null;
+  applyDietEval(entry, data);
+  return data;
+}
+
+/* Told plainly, because silently changing a logged number would be worse than
+   the wrong number. */
+function correctionBanner(corr, prior) {
+  const before = prior && prior.hasFood
+    ? Math.round(prior.totals.kcal) + ' kcal / ' + Math.round(prior.totals.protein) + ' g protein'
+    : 'no estimate';
+  const after = Math.round(corr.kcal) + ' kcal / ' + Math.round(corr.protein || 0) + ' g protein';
+  return '<div class="msg info" style="margin-bottom:10px">' +
+    '<b>Nutrition updated from this reading.</b> ' + esc(before) + ' → <b>' + esc(after) + '</b>' +
+    (corr.note ? '. ' + esc(corr.note) : '') +
+    ' <span class="hint">Confidence: ' + esc(corr.confidence) + '. The day now uses these figures.</span></div>';
+}
+
 function aiDayFacts(b) {
   const e = b.entry, t = b.training, n = b.nutrition;
   const L = [];
@@ -3463,10 +3539,15 @@ function aiDayFacts(b) {
   L.push('MEALS AS WRITTEN:');
   MEAL_KEYS.forEach(k => { if (e[k]) L.push('  ' + k + ': ' + e[k].replace(/\n/g, ' | ')); });
   L.push('SUPPLEMENTS: ' + (e.supplements ? e.supplements.replace(/\n/g, ' | ') : 'none logged'));
-  if (n.hasFood) L.push('ESTIMATED INTAKE: ' + Math.round(n.totals.kcal) + ' kcal, protein ' + Math.round(n.totals.protein) +
-    ' g (target ~' + b.proteinTarget + ' g), carbs ' + Math.round(n.totals.carbs) + ' g, sugar ' + Math.round(n.totals.sugar) +
-    ' g, fat ' + Math.round(n.totals.fat) + ' g, fibre ' + Math.round(n.totals.fibre) + ' g. ' +
-    Math.round((n.coverage || 0) * 100) + '% of items recognised, so treat as indicative.');
+  if (n.hasFood) {
+    const cov = Math.round((n.coverage || 0) * 100);
+    L.push('PRIOR ESTIMATE (not authoritative — ' + (n.source === 'ai' ? 'an earlier evaluation' : 'a local lookup') +
+      ', ' + cov + '% of items recognised): ' + Math.round(n.totals.kcal) + ' kcal, protein ' + Math.round(n.totals.protein) +
+      ' g (target ~' + b.proteinTarget + ' g), carbs ' + Math.round(n.totals.carbs) + ' g, sugar ' + Math.round(n.totals.sugar) +
+      ' g, fat ' + Math.round(n.totals.fat) + ' g, fibre ' + Math.round(n.totals.fibre) + ' g.');
+    L.push('  Work the intake out yourself from MEALS AS WRITTEN above. Do not simply adopt the prior estimate:' +
+      ' unrecognised items are counted as zero in it, so it usually understates.');
+  }
 
   L.push('TRAINING: type "' + (e.exerciseType || 'none logged') + '"' + (t.rest ? ' (rest day)' : ''));
   if (e.exerciseDetails) L.push('  as written: ' + e.exerciseDetails.replace(/\n/g, ' | '));
@@ -3905,6 +3986,13 @@ function aiSystemPrompt() {
     'Say each thing ONCE, in the section where it is most actionable. Do not raise a point under one heading and repeat',
     'it under another. Data faults belong in Watch; goal arithmetic belongs in Goal check.',
     '',
+    'AFTER the prose, and only if you have food to work from, append one final line of machine-readable JSON on its own,',
+    'starting with the marker NUTRITION_CORRECTION= and nothing after it:',
+    'NUTRITION_CORRECTION={"kcal":0,"protein":0,"carbs":0,"sugar":0,"fat":0,"fibre":0,"confidence":"high|medium|low","note":"one short line"}',
+    'These are YOUR figures for the whole day as written, not the prior estimate. Honour any amount the client stated',
+    'themselves. If the day is incomplete, give the figures for what has been eaten so far. Omit the line entirely if',
+    'there is no food logged.',
+    '',
     'OUTPUT — use exactly these markdown headings, nothing before or after:',
     '## How the day went',
     'Three to five sentences. Was this a good day against their goals, or not? Say which. Name the one or two things that decided it. Where a goal was missed, say by how much in real numbers. Where it was met, say so plainly rather than hedging. If the day is still in progress, judge what has happened so far and say it is provisional.',
@@ -4051,15 +4139,46 @@ async function runAnalysis(dateStr, opts) {
     res = await aiStream(aiSystemPrompt(), aiUserPrompt(b, scope), AI.cfg.maxTokens, { kind: 'briefing' },
       partial => {
         if (!host) return;
+        /* The correction marker is machine-readable and must never flash on
+           screen while the response streams in. */
+        /* Hide the correction marker while it streams in. A regex prefix match
+           eats ordinary words starting with N, so check the tail explicitly:
+           strip only when what remains is a genuine prefix of the marker. */
+        let shown = partial;
+        const mk = 'NUTRITION_CORRECTION';
+        const at = shown.lastIndexOf('\n' + mk[0]);
+        if (at >= 0) {
+          const tail = shown.slice(at + 1);
+          if (mk.indexOf(tail) === 0 || tail.indexOf(mk) === 0) shown = shown.slice(0, at);
+        }
         host.innerHTML = '<div class="card"><div class="card-h"><b>Claude\'s reading</b>' +
           '<span class="pill" style="margin-left:8px">writing…</span></div>' +
-          '<div class="card-b ai-md">' + mdToHtml(partial) + '</div></div>';
+          '<div class="card-b ai-md">' + mdToHtml(shown) + '</div></div>';
       });
     if (res.usage) recordUsage('briefing', AI.cfg.model, res.usage);
   } catch (streamErr) {
     /* A proxy may not support streaming. Fall back to one shot rather than fail. */
     res = await AI.complete(aiSystemPrompt(), aiUserPrompt(b, scope), AI.cfg.maxTokens, { kind: 'briefing' });
   }
+  /* Pull out the machine-readable correction, strip it from the prose, and
+     replace the stored figures when it disagrees materially with them. */
+  let correctionNotice = '';
+  try {
+    const ex = extractNutritionCorrection(res.text);
+    if (ex.correction) {
+      res.text = ex.text;
+      const entry = State.entries.find(x => x.date === b.date);
+      if (entry) {
+        const prior = nutritionFor(entry);
+        if (correctionIsMaterial(prior, ex.correction)) {
+          applyNutritionCorrection(entry, ex.correction, prior);
+          correctionNotice = correctionBanner(ex.correction, prior);
+        }
+      }
+    }
+  } catch (e) { /* a correction is a bonus, never a reason to lose the briefing */ }
+  if (correctionNotice) res.text = correctionNotice + '\n\n' + res.text;
+
   if (!res.text) {
     const why = AI.lastEmptyReason ? ' (' + AI.lastEmptyReason + ')' : '';
     if (AI.lastRaw && AI.lastRaw.stop_reason === 'max_tokens')
