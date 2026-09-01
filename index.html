@@ -5287,6 +5287,27 @@ function flushDraft() {
   const rec = readForm();
   const clash = State.entries.find(x => x.date === rec.date && x !== editing);
   if (clash) return false;                                     // leave collisions to the explicit save
+
+  /* Changing the date on an already-saved day used to REPLACE that day: open
+     01 Sep, set the date to 30 Aug, and 01 Sep silently became 30 Aug. Moving
+     a day is almost never what is meant — filling in a day that was missed is.
+     So a date change now leaves the original alone and starts a new day. */
+  if (editing && editing.date && rec.date !== editing.date) {
+    State.editingId = null;
+    editing.__keepDate = true;
+    rec.id = uid();
+    State.entries.push(rec);
+    State.editingId = rec.id;
+    touch(rec);
+    draftDirty = false;
+    sortEntries(State.entries); save(); buildFilterOptions();
+    $('#formMode').textContent = 'Editing ' + fmtDateFull(rec.date);
+    $('#btnDelete').style.display = '';
+    showBanner('Started a new entry for ' + fmtDateFull(rec.date) + '. ' +
+      fmtDateFull(editing.date) + ' is untouched.', null);
+    return true;
+  }
+
   touch(rec);
   if (editing) { rec.id = editing.id; State.entries[State.entries.indexOf(editing)] = rec; }
   else {
@@ -6792,6 +6813,44 @@ function rowsToEntries(rows) {
   }
   return out;
 }
+/* An evaluation carries a signature of the meal text it was derived from, so
+   that editing the food invalidates the numbers. Anything evaluated outside the
+   app — pasted into a chat, done by hand — has no matching signature, so it was
+   treated as stale and ignored, leaving the Nutrition tab empty.
+
+   On import the food text and the evaluation come from the same export, so the
+   signature is re-stamped to match. Only evaluations that actually carry items
+   are touched, and the client's own meal text is never altered. */
+function restampImportedEvals(list) {
+  let fixed = 0;
+  (list || []).forEach(e => {
+    try {
+      if (e.aiDiet && Array.isArray(e.aiDiet.items) && e.aiDiet.items.length) {
+        const want = dietSig(e);
+        if (e.aiDiet.sig !== want) {
+          let d = Object.assign({}, e.aiDiet, { sig: want, source: e.aiDiet.source || 'imported' });
+          if (!d.totals) d = normaliseDietEval(d, e);
+          d.sig = want;
+          e.aiDiet = d;
+          fixed++;
+        }
+      }
+      if (e.aiWorkout && Array.isArray(e.aiWorkout.exercises) && e.aiWorkout.exercises.length) {
+        const wantW = workoutSig(e);
+        if (e.aiWorkout.sig !== wantW) {
+          e.aiWorkout = Object.assign({}, e.aiWorkout, { sig: wantW, source: e.aiWorkout.source || 'imported' });
+          fixed++;
+        }
+      }
+    } catch (err) {
+      /* One bad entry must not stop the import, but a silent swallow here would
+         hide exactly the kind of failure this function exists to fix. */
+      try { console.warn('restampImportedEvals: ' + (e && e.date) + ' — ' + err.message); } catch (e2) {}
+    }
+  });
+  return fixed;
+}
+
 function mergeEntries(incoming, mode) {
   let added = 0, updated = 0, skipped = 0;
   if (mode === 'replace') { State.entries = []; }
@@ -6957,7 +7016,9 @@ async function importFile(file) {
       const d = JSON.parse(await file.text());
       const list = (Array.isArray(d) ? d : d.entries || []).map(clean).filter(e => e.date);
       if (!list.length) throw new Error('No entries in that file');
+      const restamped = restampImportedEvals(list);
       const r = mergeEntries(list, mode);
+      if (restamped) r.restamped = restamped;
       if (d.medical && ask('This backup also holds a medical record. Replace the current one?')) { State.medical = d.medical; save(); }
       done(r);
     } else if (name.endsWith('.csv') || name.endsWith('.txt')) {
@@ -6983,7 +7044,9 @@ async function importFile(file) {
   }
   function done(r) {
     renderDash(); renderTable(); renderStoreStats();
-    toast(r.added + ' added · ' + r.updated + ' updated · ' + r.skipped + ' unchanged');
+    toast(r.added + ' added · ' + r.updated + ' updated · ' + r.skipped + ' unchanged' +
+      (r.restamped ? ' · ' + r.restamped + ' imported evaluation(s) linked to their day' : ''));
+    clearNutritionCache(); clearBriefCache();
   }
 }
 function renderStoreStats() {
