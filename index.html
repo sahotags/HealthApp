@@ -47,6 +47,10 @@ a{color:var(--teal)}
 .save-state.ok i{background:var(--moss)}
 .save-state.bad{color:var(--crimson);font-weight:600}
 .save-state.bad i{background:var(--crimson)}
+/* "saving" used to share the idle grey, so a write that never finished looked
+   identical to nothing happening. It gets its own colour now. */
+.save-state.busy i{background:var(--prim)}
+.save-state.busy{color:var(--teal)}
 nav.tabs{display:flex;gap:2px;margin-left:auto}
 nav.tabs button{
   background:none;border:0;padding:7px 13px;border-radius:var(--r-sm);cursor:pointer;
@@ -262,7 +266,6 @@ ul.pred li{margin-bottom:5px}
   .two,.three{grid-template-columns:1fr}
 }
 @media (max-width:720px){
-  .save-state span{display:none}
   main{padding:14px 12px 96px}
   .topbar-in{padding:9px 12px;gap:10px}
   .brand span{display:none}
@@ -627,12 +630,16 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
   #msheet .sh .t{flex:1;min-width:0}
   #msheet .sh .t b{display:block;font-size:1.05rem;letter-spacing:-.01em;color:var(--ink)}
   #msheet .sh .t span{display:block;font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:1px}
+  #msheet .sh .t .save-state{display:inline-flex;margin-top:3px}
   #msheet .sh button{
     border:0;background:var(--prim);color:var(--on-prim);
     font:700 .88rem var(--sans);padding:10px 20px;border-radius:22px;cursor:pointer;min-height:40px;
   }
   #msheet .body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 16px calc(22px + env(safe-area-inset-bottom,0px))}
   #msheet .body fieldset{border:0;padding:0;margin:0}
+  #msheet .body #form fieldset{display:none}
+  #msheet .body #form fieldset.m-open{display:block}
+  #msheet .body #form .sticky-actions{display:none}
   #msheet .body .fs-h{display:none}
   #msheet .body .form-grid{grid-template-columns:1fr;gap:14px}
   #msheet .body .f.wide{grid-column:auto}
@@ -7324,7 +7331,7 @@ function renderSources() {
 function renderSaveState() {
   const el = $('#saveState'); if (!el) return;
   const m = {
-    saving: ['', 'Saving…'], saved: ['ok', 'Saved'], error: ['bad', 'Not saved'],
+    saving: ['busy', 'Saving…'], saved: ['ok', 'Saved'], error: ['bad', 'Not saved'],
     readonly: ['bad', 'Not saved anywhere'], idle: ['', 'Ready']
   }[Repo.status] || ['', ''];
   let label = m[1];
@@ -8008,6 +8015,8 @@ const Mobile = {
     this.buildTabs();
     this.wrapSwitchView();
 
+    /* a save that fails must be visible from wherever you are typing */
+    try { Repo.onChange(() => this.syncSave()); } catch (e) { /* older source layer */ }
     $('#form').addEventListener('input', debounce(() => this.render(), 250));
     $('#form').addEventListener('change', () => this.render());
     window.matchMedia(this.MQ).addEventListener('change', () => {
@@ -8052,7 +8061,8 @@ const Mobile = {
       '<div class="scrim" data-mclose></div>' +
       '<div class="panel" role="dialog" aria-modal="true">' +
         '<div class="grab"><i></i></div>' +
-        '<div class="sh"><div class="t"><b id="mshTitle"></b><span id="mshDate"></span></div>' +
+        '<div class="sh"><div class="t"><b id="mshTitle"></b>' +
+        '<span id="mshDate"></span><span class="save-state" id="mshSave"></span></div>' +
         '<button type="button" data-mclose>Done</button></div>' +
         '<div class="body" id="mshBody"></div>' +
       '</div>';
@@ -8235,37 +8245,36 @@ const Mobile = {
     toast('Copied yesterday’s ' + c.title.toLowerCase());
   },
 
+  /* A sheet shows ONE fieldset, but it borrows the WHOLE <form> to do it and
+     hides the other four with CSS.
+
+     Moving a bare fieldset out of the form looked tidier and silently broke
+     every save on a phone: an <input> outside its <form> drops out of
+     form.elements, so readForm() found no date field and threw inside the
+     autosave, and its input events no longer bubbled through #form, so the
+     listener that marks the draft dirty never fired. Typing on the phone
+     changed nothing and said nothing. The form and its controls must stay one
+     subtree — that is the whole reason this borrows the form, not a fieldset. */
   openSheet(i) {
     const c = this.CARDS[i]; if (!c) return;
     const fs = this.fieldsets()[c.fs]; if (!fs) return;
     this.closeSheet();
-    const anchor = document.createElement('div');
-    anchor.dataset.manchor = '1';
-    fs.parentNode.insertBefore(anchor, fs);
-    this._anchor = anchor;
-    this._moved = fs;
+    this.borrow($('#form'));
+    this.fieldsets().forEach(x => x.classList.toggle('m-open', x === fs));
     this.openIdx = i;
     $('#mshTitle').textContent = c.title;
     $('#mshDate').textContent = (fmtDateFull(this.date()) || '').toUpperCase();
-    $('#mshBody').appendChild(fs);
-    $('#msheet').classList.add('on');
-    document.body.classList.add('msheet-open');
+    this.show();
   },
 
   openVoice() {
-    const vp = $('#voicePanel'); if (!vp) return;
+    const vp = $('#voicePanel'); if (!vp) return;   /* a sibling of the form, not part of it */
     this.closeSheet();
-    const anchor = document.createElement('div');
-    anchor.dataset.manchor = '1';
-    vp.parentNode.insertBefore(anchor, vp);
-    this._anchor = anchor;
-    this._moved = vp;
+    this.borrow(vp);
     this.openIdx = 'voice';
     $('#mshTitle').textContent = 'Speak your day';
     $('#mshDate').textContent = (fmtDateFull(this.date()) || '').toUpperCase();
-    $('#mshBody').appendChild(vp);
-    $('#msheet').classList.add('on');
-    document.body.classList.add('msheet-open');
+    this.show();
   },
 
   openMenu() {
@@ -8291,8 +8300,32 @@ const Mobile = {
       this.closeSheet();
       switchView(v);
     };
+    this.show();
+  },
+
+  show() {
+    this.syncSave();
     $('#msheet').classList.add('on');
     document.body.classList.add('msheet-open');
+  },
+
+  syncSave() {
+    const el = $('#mshSave'); if (!el) return;
+    const live = $('#saveState');
+    el.className = live ? live.className : 'save-state';
+    el.innerHTML = live ? live.innerHTML : '';
+  },
+
+  /* park a live node in the sheet, leaving a marker so it goes back exactly
+     where it came from — order in the DOM matters to the form and to the CSS */
+  borrow(node) {
+    if (!node) return;
+    const anchor = document.createElement('div');
+    anchor.dataset.manchor = '1';
+    node.parentNode.insertBefore(anchor, node);
+    this._anchor = anchor;
+    this._moved = node;
+    $('#mshBody').appendChild(node);
   },
 
   closeSheet() {
@@ -8301,12 +8334,12 @@ const Mobile = {
     sheet.classList.remove('on');
     document.body.classList.remove('msheet-open');
     $('#mshBody').onclick = null;
-    /* put the borrowed node back exactly where it came from */
     if (this._moved && this._anchor && this._anchor.parentNode) {
       this._anchor.parentNode.insertBefore(this._moved, this._anchor);
       this._anchor.remove();
     }
     this._moved = null; this._anchor = null;
+    this.fieldsets().forEach(x => x.classList.remove('m-open'));
     if (this.openIdx === 'menu') $('#mshBody').innerHTML = '';
     this.openIdx = null;
     if (typeof flushDraft === 'function') flushDraft();
