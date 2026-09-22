@@ -612,7 +612,15 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
     opacity:0;transition:opacity .26s ease;
   }
   #msheet .panel{
-    position:absolute;left:0;right:0;bottom:0;max-height:94vh;
+    /* 94vh put the top edge ~50px down, which is exactly where the Dynamic
+       Island sits — and on iOS Safari vh measures the viewport with the browser
+       chrome HIDDEN, so the panel was taller than the screen and pushed its own
+       header (the only way out) off the top. dvh tracks the real viewport, and
+       the safe-area inset keeps the header clear of the island. JS narrows this
+       further when the keyboard is up. */
+    position:absolute;left:0;right:0;bottom:0;
+    max-height:88vh;
+    max-height:calc(100dvh - env(safe-area-inset-top,0px) - 10px);
     background:var(--surface);border-radius:24px 24px 0 0;
     display:flex;flex-direction:column;
     transform:translateY(102%);transition:transform .3s cubic-bezier(.32,.72,0,1);
@@ -630,11 +638,22 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
   #msheet .sh .t{flex:1;min-width:0}
   #msheet .sh .t b{display:block;font-size:1.05rem;letter-spacing:-.01em;color:var(--ink)}
   #msheet .sh .t span{display:block;font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:1px}
-  #msheet .sh .t .save-state{display:inline-flex;margin-top:3px}
-  #msheet .sh button{
-    border:0;background:var(--prim);color:var(--on-prim);
-    font:700 .88rem var(--sans);padding:10px 20px;border-radius:22px;cursor:pointer;min-height:40px;
+  #msheet .sh .save-state{flex:0 0 auto;max-width:96px;overflow:hidden}
+  /* A 20px-wide pill reading "Done" was the biggest thing in the header and it
+     still scrolled out of reach. It is now a 44px circle — the minimum comfy
+     touch target — sitting next to the save state, so "can I close this?" and
+     "is it saved?" are answered in the same glance. */
+  #msheet .sh button.x{
+    flex:0 0 auto;width:44px;height:44px;border:0;border-radius:50%;
+    background:var(--prim);color:var(--on-prim);display:grid;place-items:center;cursor:pointer;
   }
+  #msheet .sh button.x svg{width:22px;height:22px;stroke:currentColor;fill:none;
+    stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+  #msheet .sh{position:sticky;top:0;z-index:2;background:var(--surface)}
+  #msheet .grab{cursor:grab;touch-action:none}
+  #msheet .panel.dragging{transition:none}
+  /* a textarea fixed at 3 rows clipped the meal you were halfway through typing */
+  #msheet .body textarea{min-height:88px;resize:none;overflow:hidden}
   #msheet .body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 16px calc(22px + env(safe-area-inset-bottom,0px))}
   #msheet .body fieldset{border:0;padding:0;margin:0}
   #msheet .body #form fieldset{display:none}
@@ -8055,6 +8074,16 @@ const Mobile = {
 
     /* a save that fails must be visible from wherever you are typing */
     try { Repo.onChange(() => this.syncSave()); } catch (e) { /* older source layer */ }
+    this.bindDrag();
+    if (window.visualViewport) {
+      const fit = () => this.fitViewport();
+      window.visualViewport.addEventListener('resize', fit);
+      window.visualViewport.addEventListener('scroll', fit);
+    }
+    $('#mshBody').addEventListener('focusin', ev => this.revealFocus(ev.target));
+    $('#mshBody').addEventListener('input', ev => {
+      if (ev.target && ev.target.tagName === 'TEXTAREA') this.grow(ev.target);
+    });
     $('#form').addEventListener('input', debounce(() => this.render(), 250));
     $('#form').addEventListener('change', () => this.render());
     window.matchMedia(this.MQ).addEventListener('change', () => {
@@ -8099,9 +8128,10 @@ const Mobile = {
       '<div class="scrim" data-mclose></div>' +
       '<div class="panel" role="dialog" aria-modal="true">' +
         '<div class="grab"><i></i></div>' +
-        '<div class="sh"><div class="t"><b id="mshTitle"></b>' +
-        '<span id="mshDate"></span><span class="save-state" id="mshSave"></span></div>' +
-        '<button type="button" data-mclose>Done</button></div>' +
+        '<div class="sh"><div class="t"><b id="mshTitle"></b><span id="mshDate"></span></div>' +
+        '<span class="save-state" id="mshSave"></span>' +
+        '<button type="button" class="x" data-mclose aria-label="Close">' +
+        '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"></path></svg></button></div>' +
         '<div class="body" id="mshBody"></div>' +
       '</div>';
     document.body.appendChild(d);
@@ -8357,6 +8387,79 @@ const Mobile = {
     this.syncSave();
     $('#msheet').classList.add('on');
     document.body.classList.add('msheet-open');
+    this.fitViewport();
+    this.grow();
+  },
+
+  /* ---------- keeping the sheet reachable ----------
+     iOS Safari does not shrink the layout viewport when the keyboard opens, so
+     a position:fixed sheet keeps its full height and the header — which holds
+     the only way out — ends up behind the keyboard or off the top of the
+     screen. visualViewport reports the part that is actually on screen, so the
+     sheet is sized and lifted to match it. */
+  fitViewport() {
+    const vv = window.visualViewport, panel = $('#msheet .panel');
+    if (!panel) return;
+    if (!vv || !$('#msheet').classList.contains('on')) {
+      if (panel) { panel.style.maxHeight = ''; panel.style.bottom = ''; }
+      return;
+    }
+    const hidden = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    panel.style.bottom = hidden + 'px';
+    panel.style.maxHeight = Math.max(220, vv.height - 10) + 'px';
+  },
+
+  /* whichever field has focus should stay in sight above the keyboard */
+  revealFocus(el) {
+    if (!el || !$('#msheet').classList.contains('on')) return;
+    setTimeout(() => {
+      try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* older Safari */ }
+    }, 220);
+  },
+
+  /* a fixed 3-row textarea clipped whatever you were halfway through typing */
+  grow(el) {
+    const list = el ? [el] : $$('#mshBody textarea');
+    list.forEach(t => {
+      if (!t.closest('#mshBody')) return;
+      t.style.height = 'auto';
+      t.style.height = Math.min(360, Math.max(88, t.scrollHeight + 2)) + 'px';
+    });
+  },
+
+  /* drag the header down to put the sheet away — the gesture the chevron implies */
+  bindDrag() {
+    const sheet = $('#msheet'), panel = $('#msheet .panel');
+    if (!sheet || !panel) return;
+    let y0 = null, dy = 0;
+    const start = ev => {
+      if (ev.target.closest('button')) return;          /* let the close button be a button */
+      const t = ev.touches ? ev.touches[0] : ev;
+      y0 = t.clientY; dy = 0;
+      panel.classList.add('dragging');
+    };
+    const move = ev => {
+      if (y0 === null) return;
+      const t = ev.touches ? ev.touches[0] : ev;
+      dy = Math.max(0, t.clientY - y0);
+      if (dy > 4 && ev.cancelable) ev.preventDefault();
+      panel.style.transform = 'translateY(' + dy + 'px)';
+    };
+    const end = () => {
+      if (y0 === null) return;
+      panel.classList.remove('dragging');
+      panel.style.transform = '';
+      const far = dy > 90;
+      y0 = null; dy = 0;
+      if (far) this.closeSheet();
+    };
+    ['.grab', '.sh'].forEach(sel => {
+      const h = panel.querySelector(sel); if (!h) return;
+      h.addEventListener('touchstart', start, { passive: true });
+      h.addEventListener('touchmove', move, { passive: false });
+      h.addEventListener('touchend', end);
+      h.addEventListener('touchcancel', end);
+    });
   },
 
   syncSave() {
@@ -8383,6 +8486,9 @@ const Mobile = {
     if (!sheet.classList.contains('on') && !this._moved) return;
     sheet.classList.remove('on');
     document.body.classList.remove('msheet-open');
+    const panel = $('#msheet .panel');
+    if (panel) { panel.style.maxHeight = ''; panel.style.bottom = ''; panel.style.transform = ''; }
+    $$('#mshBody textarea').forEach(t => { t.style.height = ''; });
     $('#mshBody').onclick = null;
     if (this._moved && this._anchor && this._anchor.parentNode) {
       this._anchor.parentNode.insertBefore(this._moved, this._anchor);
