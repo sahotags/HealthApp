@@ -9,19 +9,19 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --canvas:#E7ECEF; --surface:#FFFFFF; --surface2:#F3F7F8; --surface3:#E2E9ED;
-  --line:#C2CFD6; --line-soft:#DDE5E9;
-  --ink:#0E1A21; --ink2:#46606D; --ink3:#7F949E;
-  --teal:#0F6E6B; --teal-soft:#D6EAE8;
+  --canvas:#FFF9F4; --surface:#FFFFFF; --surface2:#FFF2E7; --surface3:#FFE0C7;
+  --line:#EDD3B9; --line-soft:#F9E9DB;
+  --ink:#241009; --ink2:#7A4A2C; --ink3:#B08A6E;
+  --teal:#BF3D05; --teal-soft:#FFE6D2;
   --indigo:#33459C; --indigo-soft:#DFE3F5;
-  --amber:#A9740A; --amber-soft:#F6E9CE;
+  --amber:#8A5A02; --amber-soft:#FFEFCC;
   --crimson:#A4203C; --crimson-soft:#F7DDE2;
-  --moss:#4A7A2B; --moss-soft:#E1EDD6;
-  --slate:#5B6E78;
+  --moss:#426818; --moss-soft:#E8F2D8;
+  --slate:#8A6A52;
   --r:10px; --r-sm:6px;
   --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
-  --shadow:0 1px 2px rgba(14,26,33,.06),0 8px 24px -12px rgba(14,26,33,.16);
+  --shadow:0 1px 2px rgba(64,26,8,.06),0 8px 24px -12px rgba(64,26,8,.16);
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -53,7 +53,7 @@ nav.tabs button{
   font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);
 }
 nav.tabs button:hover{background:var(--surface3)}
-nav.tabs button[aria-current="true"]{background:var(--ink);color:#fff}
+nav.tabs button[aria-current="true"]{background:var(--prim);color:var(--on-prim);font-weight:700}
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;
   background:var(--surface);border:1px solid var(--line);color:var(--ink);
@@ -62,8 +62,8 @@ nav.tabs button[aria-current="true"]{background:var(--ink);color:#fff}
 }
 .btn:hover{background:var(--surface2);border-color:var(--ink3)}
 .btn:active{transform:translateY(1px)}
-.btn-primary{background:var(--teal);border-color:var(--teal);color:#fff}
-.btn-primary:hover{background:#0B5B58;border-color:#0B5B58}
+.btn-primary{background:var(--prim);border-color:var(--prim-deep);color:var(--on-prim);font-weight:700}
+.btn-primary:hover{background:#A83505;border-color:#A83505}
 .btn-danger{color:var(--crimson);border-color:#E4BFC7}
 .btn-danger:hover{background:var(--crimson-soft);border-color:var(--crimson)}
 .btn-sm{padding:5px 10px;font-size:12.5px}
@@ -106,7 +106,7 @@ main{max-width:1180px;margin:0 auto;padding:22px 18px 120px}
   box-shadow:0 10px 30px -10px rgba(0,0,0,.5);line-height:1.45;
 }
 .tip.on{opacity:1}
-.tip b{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9FD5D2;display:block;margin-bottom:3px}
+.tip b{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#FFC79E;display:block;margin-bottom:3px}
 .tip div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* ---------- kpis ---------- */
@@ -119,7 +119,7 @@ main{max-width:1180px;margin:0 auto;padding:22px 18px 120px}
 .up{color:var(--crimson)}.down{color:var(--moss)}
 .pill{display:inline-block;padding:2px 7px;border-radius:20px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;border:1px solid transparent}
 .pill.ok{background:var(--moss-soft);color:#33561C;border-color:#C6DBB4}
-.pill.warn{background:var(--amber-soft);color:#7A5406;border-color:#E7D3A6}
+.pill.warn{background:var(--amber-soft);color:#7A5406;border-color:#F0DCA8}
 .pill.bad{background:var(--crimson-soft);color:#7C1329;border-color:#E9C2CB}
 .pill.neutral{background:var(--surface3);color:var(--ink2);border-color:var(--line)}
 
@@ -230,7 +230,7 @@ ul.ai-list li{margin-bottom:6px}
 .exec-tag{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:var(--surface);border:1px solid var(--line);white-space:nowrap;margin-top:2px}
 .flag{margin:10px 0 0;padding:10px 12px;border-radius:var(--r-sm);font-size:13.5px;line-height:1.5;border:1px solid var(--line);background:var(--surface2)}
 .flag.ok{background:var(--moss-soft);border-color:#C6DBB4}
-.flag.warn{background:var(--amber-soft);border-color:#E7D3A6}
+.flag.warn{background:var(--amber-soft);border-color:#F0DCA8}
 .flag.bad{background:var(--crimson-soft);border-color:#E9C2CB}
 .flag.note{background:var(--surface2)}
 .protocol .stat-line{align-items:flex-start;gap:14px}
@@ -282,36 +282,50 @@ ul.pred li{margin-bottom:5px}
    Same structure, warmer surfaces and stronger accents. These override the
    tokens above rather than replacing them, so nothing structural changes. */
 :root{
-  --canvas:#F4F1EC;            /* warm paper instead of cold grey-blue */
+  --canvas:#FFF9F4;            /* bright warm paper */
   --surface:#FFFFFF;
-  --surface2:#FAF7F2;
-  --surface3:#EFEAE2;
-  --line:#DCD5CA;
-  --line-soft:#EBE6DD;
-  --ink:#1B1712;
-  --ink2:#5C5348;
-  --ink3:#918878;
-  --teal:#0C6B62;              /* deeper, more saturated */
-  --teal-soft:#DCEFEB;
+  --surface2:#FFF2E7;
+  --surface3:#FFE0C7;
+  --line:#EDD3B9;
+  --line-soft:#F9E9DB;
+  --ink:#241009;
+  --ink2:#7A4A2C;              /* 7.2:1 on white */
+  --ink3:#B08A6E;              /* hairlines and muted-only — never small text */
+
+  /* Primary is split in two on purpose.
+     --prim is the bright FILL; text on it must be near-black (--on-prim),
+     because white on #F4610F is only 3.2:1 and fails.
+     --teal is the primary as TEXT/line on white: darker, 5.4:1, and it keeps
+     the 28 existing var(--teal) call sites accessible without touching them. */
+  --prim:#F4610F;
+  --prim-deep:#D24E08;
+  --on-prim:#2B1004;
+  /* --ink3 is 3.0:1 — hairlines, dividers and disabled glyphs only.
+     Muted TEXT (yesterday's readings) uses --muted, which clears 4.5:1. */
+  --muted:#8A6A52;
+  --teal:#BF3D05;
+  --teal-soft:#FFE6D2;
+
+  /* data-series hues stay distinct — charts need separation, not one colour */
   --indigo:#3B4BA8;
   --indigo-soft:#E4E7F8;
-  --amber:#9A6510;
-  --amber-soft:#FBEED2;
+  --amber:#8A5A02;
+  --amber-soft:#FFEFCC;
   --crimson:#A81F41;
   --crimson-soft:#FBE0E6;
-  --moss:#4A7A2B;
-  --moss-soft:#E6F0D9;
+  --moss:#426818;
+  --moss-soft:#E8F2D8;
   --r:14px;
   --r-sm:9px;
-  --shadow:0 1px 2px rgba(27,23,18,.05), 0 10px 30px -14px rgba(27,23,18,.18);
-  --shadow-lift:0 2px 6px rgba(27,23,18,.07), 0 18px 40px -18px rgba(27,23,18,.26);
+  --shadow:0 1px 2px rgba(64,26,8,.05), 0 10px 30px -14px rgba(64,26,8,.18);
+  --shadow-lift:0 2px 6px rgba(64,26,8,.07), 0 18px 40px -18px rgba(64,26,8,.26);
 }
 
 /* a soft warm wash so the page is not a flat slab */
 body{
   background:
-    radial-gradient(900px 500px at 12% -8%, rgba(12,107,98,.07), transparent 60%),
-    radial-gradient(800px 460px at 92% 4%, rgba(59,75,168,.06), transparent 62%),
+    radial-gradient(900px 500px at 12% -8%, rgba(244,97,15,.10), transparent 60%),
+    radial-gradient(800px 460px at 92% 4%, rgba(244,97,15,.06), transparent 62%),
     var(--canvas);
   background-attachment:fixed;
 }
@@ -332,24 +346,27 @@ body{
 
 /* the header stops looking like a toolbar */
 .topbar{
-  background:linear-gradient(180deg,#FFFFFF, #FBF8F3);
+  background:linear-gradient(180deg,#FFFFFF, #FFF9F4);
   border-bottom:1px solid var(--line-soft);
-  box-shadow:0 1px 0 rgba(27,23,18,.03), 0 8px 24px -20px rgba(27,23,18,.4);
+  box-shadow:0 1px 0 rgba(64,26,8,.03), 0 8px 24px -20px rgba(64,26,8,.4);
 }
 
 /* the active tab earns its emphasis instead of being a black slab */
 .tabs button[aria-current="true"], nav.tabs button[aria-selected="true"]{
-  background:linear-gradient(180deg, var(--teal), #0A5A52);
-  color:#fff;
+  background:linear-gradient(180deg, var(--prim), var(--prim-deep));
+  color:var(--on-prim);
+  font-weight:700;
   border-radius:var(--r-sm);
-  box-shadow:0 2px 8px -2px rgba(12,107,98,.5);
+  box-shadow:0 2px 8px -2px rgba(244,97,15,.55);
 }
 
 /* primary actions look pressable */
 .btn-primary{
-  background:linear-gradient(180deg, var(--teal), #0A5A52);
-  border-color:#0A5A52;
-  box-shadow:0 1px 2px rgba(12,107,98,.3), 0 6px 16px -8px rgba(12,107,98,.6);
+  background:linear-gradient(180deg, var(--prim), var(--prim-deep));
+  border-color:var(--prim-deep);
+  color:var(--on-prim);
+  font-weight:700;
+  box-shadow:0 1px 2px rgba(196,62,6,.3), 0 6px 16px -8px rgba(244,97,15,.7);
 }
 .btn-primary:hover{ filter:brightness(1.06); }
 
@@ -464,21 +481,213 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
 #gate input{width:100%;padding:9px 11px;background:var(--surface2);border:1px solid var(--line);border-radius:var(--r-sm);outline:none}
 #gate input:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-soft);background:var(--surface)}
 #gate input.pin{font-family:var(--mono);font-size:1.3rem;letter-spacing:.3em;text-align:center}
-#gate button.go{width:100%;margin-top:16px;padding:10px;background:var(--teal);color:#fff;border:0;border-radius:var(--r-sm);font-weight:600;cursor:pointer}
+#gate button.go{width:100%;margin-top:16px;padding:10px;background:var(--prim);color:var(--on-prim);border:0;border-radius:var(--r-sm);font-weight:600;cursor:pointer}
 #gate button.go:disabled{opacity:.5;cursor:not-allowed}
 #gate .swap{margin-top:14px;text-align:center;font-size:.82rem;color:var(--ink2)}
 #gate .swap button{background:none;border:0;color:var(--teal);font-weight:600;cursor:pointer;padding:0;text-decoration:underline}
 #gate .msg{margin-top:14px;padding:9px 11px;border-radius:var(--r-sm);font-size:.83rem;border:1px solid}
 #gate .msg.err{background:var(--crimson-soft);color:var(--crimson);border-color:#EBC4CD}
-#gate .msg.ok{background:var(--teal-soft);color:var(--teal);border-color:#B6D9D6}
+#gate .msg.ok{background:var(--teal-soft);color:var(--teal);border-color:#F7C9A8}
 #gate .msg.info{background:var(--surface2);color:var(--ink2);border-color:var(--line)}
 #gate .reveal{font-family:var(--mono);font-size:1.9rem;font-weight:600;letter-spacing:.2em;text-align:center;
-  color:var(--teal);background:var(--teal-soft);border:1px dashed #9CC9C5;border-radius:var(--r-sm);padding:14px;margin:12px 0}
+  color:var(--teal);background:var(--teal-soft);border:1px dashed #F2B98E;border-radius:var(--r-sm);padding:14px;margin:12px 0}
 #gate .brand{display:flex;align-items:center;gap:10px;margin-bottom:18px}
-#gate .brand .m{width:32px;height:32px;border-radius:8px;background:var(--teal);color:#fff;display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:.76rem}
+#gate .brand .m{width:32px;height:32px;border-radius:8px;background:var(--prim);color:var(--on-prim);display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:.76rem}
 #acctbar{display:flex;align-items:center;gap:8px;font-size:.8rem}
 #acctbar .who{font-family:var(--mono);font-size:.72rem;color:var(--ink2);background:var(--surface2);border:1px solid var(--line-soft);padding:2px 8px;border-radius:var(--r-sm)}
 #acctbar button{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px 9px;font-size:.76rem;cursor:pointer}
+
+/* ==========================================================================
+   MOBILE SHELL
+   On a phone the home screen stops being a form. It becomes five cards that
+   show what is already logged; tapping one slides up a sheet holding the real
+   fieldset — the same DOM node, moved, not copied — so every existing
+   listener, the autosave and the parsers keep working untouched.
+   ========================================================================== */
+#mtabs,#msheet,#v-home{display:none}
+#mhead{display:none}
+
+@media (max-width:820px){
+  body{padding-bottom:calc(66px + env(safe-area-inset-bottom,0px))}
+  .topbar .tabs{display:none}
+  .topbar-in{padding-top:8px;padding-bottom:8px}
+  main{padding:10px 12px 8px}
+  .two,.three{grid-template-columns:1fr}
+  .card{border-radius:16px}
+  .sticky-actions{flex-wrap:wrap;gap:8px}
+
+  /* bottom tab bar */
+  #mtabs{
+    display:flex;position:fixed;left:0;right:0;bottom:0;z-index:60;
+    background:var(--surface);border-top:1px solid var(--line-soft);
+    padding:7px 4px calc(10px + env(safe-area-inset-bottom,0px));
+    box-shadow:0 -6px 24px -18px rgba(64,26,8,.5);
+  }
+  #mtabs button{
+    flex:1 1 0;display:flex;flex-direction:column;align-items:center;gap:3px;
+    background:none;border:0;cursor:pointer;color:var(--ink2);
+    font:500 10px/1 var(--sans);padding:4px 0;min-height:44px;
+  }
+  #mtabs button[aria-current="true"]{color:var(--teal);font-weight:700}
+  #mtabs button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;
+    stroke-linecap:round;stroke-linejoin:round}
+  #mtabs button.add .pill{
+    width:46px;height:31px;border-radius:16px;background:var(--prim);color:var(--on-prim);
+    display:grid;place-items:center;box-shadow:0 3px 10px -3px rgba(244,97,15,.8);
+  }
+  #mtabs button.add .pill svg{stroke-width:2.5}
+  #mtabs button.add{color:var(--teal);font-weight:700}
+
+  /* the card home */
+  #v-home.on{display:block}
+  #mhead{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+  #mhead .nav{
+    width:40px;height:40px;border:0;background:none;border-radius:12px;cursor:pointer;
+    color:var(--ink2);display:grid;place-items:center;
+  }
+  #mhead .nav[disabled]{color:var(--ink3)}
+  #mhead .nav svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;
+    stroke-linecap:round;stroke-linejoin:round}
+  #mhead .mid{flex:1;text-align:center;min-width:0}
+  #mhead .mid b{display:block;font-size:1.25rem;letter-spacing:-.02em;color:var(--ink)}
+  #mhead .mid span{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink2);margin-top:2px}
+
+  #mprog{display:flex;align-items:center;gap:10px;margin:0 0 12px}
+  #mprog .track{flex:1;height:6px;border-radius:3px;background:var(--surface3);overflow:hidden}
+  #mprog .track i{display:block;height:100%;background:var(--prim);border-radius:3px;transition:width .3s ease}
+  #mprog .n{font-family:var(--mono);font-size:11px;color:var(--ink2);white-space:nowrap}
+
+  .mcard{
+    display:block;width:100%;text-align:left;background:var(--surface);
+    border:1px solid var(--line);border-radius:16px;padding:13px 14px;margin-bottom:10px;
+    font:inherit;color:inherit;cursor:pointer;
+    transition:transform .14s ease, box-shadow .14s ease;
+  }
+  .mcard:active{transform:scale(.985);box-shadow:var(--shadow)}
+  .mcard .top{display:flex;align-items:center;gap:13px}
+  .mcard .ic{
+    width:40px;height:40px;flex:0 0 40px;border-radius:13px;display:grid;place-items:center;
+    background:var(--surface2);color:var(--ink3);
+  }
+  .mcard.done .ic{background:var(--teal-soft);color:var(--teal)}
+  .mcard .ic svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.9;
+    stroke-linecap:round;stroke-linejoin:round}
+  .mcard .tx{flex:1;min-width:0}
+  .mcard .tx b{display:block;font-size:.95rem;font-weight:600;color:var(--ink)}
+  .mcard .tx span{
+    display:block;font-family:var(--mono);font-size:.8rem;color:var(--ink2);margin-top:1px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .mcard .tx span.none{font-family:var(--sans);color:var(--muted)}
+  .mcard .go{flex:0 0 auto;color:var(--ink3);display:grid;place-items:center}
+  .mcard .go svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;
+    stroke-linecap:round;stroke-linejoin:round}
+
+  /* yesterday, visibly not today's data, one tap to carry forward */
+  .myest{
+    display:flex;align-items:center;gap:10px;margin-top:11px;padding:8px 11px;
+    background:var(--canvas);border:1px dashed var(--line);border-radius:12px;
+  }
+  .myest .t{flex:1;min-width:0}
+  .myest .t em{
+    display:block;font-style:normal;font-size:10px;font-weight:600;color:var(--muted);
+    letter-spacing:.06em;text-transform:uppercase;
+  }
+  .myest .t span{
+    display:block;font-family:var(--mono);font-size:.75rem;color:var(--muted);margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .myest button{
+    flex:0 0 auto;border:0;background:var(--teal-soft);color:var(--teal);
+    font:700 .75rem var(--sans);padding:7px 13px;border-radius:14px;cursor:pointer;min-height:32px;
+  }
+
+  /* bottom sheet */
+  #msheet{display:block;position:fixed;inset:0;z-index:80;pointer-events:none}
+  #msheet .scrim{
+    position:absolute;inset:0;background:rgba(36,16,9,.42);
+    opacity:0;transition:opacity .26s ease;
+  }
+  #msheet .panel{
+    position:absolute;left:0;right:0;bottom:0;max-height:94vh;
+    background:var(--surface);border-radius:24px 24px 0 0;
+    display:flex;flex-direction:column;
+    transform:translateY(102%);transition:transform .3s cubic-bezier(.32,.72,0,1);
+    box-shadow:0 -10px 40px -16px rgba(64,26,8,.45);
+  }
+  #msheet.on{pointer-events:auto}
+  #msheet.on .scrim{opacity:1}
+  #msheet.on .panel{transform:translateY(0)}
+  #msheet .grab{flex:0 0 auto;display:grid;place-items:center;padding:9px 0 2px}
+  #msheet .grab i{width:38px;height:5px;border-radius:3px;background:var(--line)}
+  #msheet .sh{
+    flex:0 0 auto;display:flex;align-items:center;gap:10px;
+    padding:6px 16px 12px;border-bottom:1px solid var(--line-soft);
+  }
+  #msheet .sh .t{flex:1;min-width:0}
+  #msheet .sh .t b{display:block;font-size:1.05rem;letter-spacing:-.01em;color:var(--ink)}
+  #msheet .sh .t span{display:block;font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:1px}
+  #msheet .sh button{
+    border:0;background:var(--prim);color:var(--on-prim);
+    font:700 .88rem var(--sans);padding:10px 20px;border-radius:22px;cursor:pointer;min-height:40px;
+  }
+  #msheet .body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 16px calc(22px + env(safe-area-inset-bottom,0px))}
+  #msheet .body fieldset{border:0;padding:0;margin:0}
+  #msheet .body .fs-h{display:none}
+  #msheet .body .form-grid{grid-template-columns:1fr;gap:14px}
+  #msheet .body .f.wide{grid-column:auto}
+  #msheet .menu{list-style:none;margin:0;padding:0}
+  #msheet .menu li{border-bottom:1px solid var(--line-soft)}
+  #msheet .menu li:last-child{border-bottom:0}
+  #msheet .menu button{
+    width:100%;text-align:left;background:none;border:0;cursor:pointer;
+    padding:15px 2px;font:600 .95rem var(--sans);color:var(--ink);min-height:48px;
+    display:flex;align-items:center;gap:10px;
+  }
+  #msheet .menu button small{margin-left:auto;font-weight:400;color:var(--muted)}
+
+  /* The structured sets editor is a seven-column table. That is right on a
+     desktop and unusable at 390px, so on a phone each exercise becomes a card:
+     type and name full width, then the four numbers in a row under their own
+     labels. Pure CSS — the markup, the ids and the handlers are untouched. */
+  #msheet .sets-tbl,#msheet .sets-tbl tbody,#msheet .sets-tbl tr,#msheet .sets-tbl td{display:block}
+  #msheet .sets-tbl thead{display:none}
+  #msheet .sets-tbl{border-spacing:0}
+  #msheet .sets-tbl tr{
+    position:relative;background:var(--surface);border:1px solid var(--line);
+    border-radius:12px;padding:10px 42px 10px 10px;margin-bottom:8px;
+    display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+  }
+  #msheet .sets-tbl td{padding:0}
+  #msheet .sets-tbl td:nth-child(1),#msheet .sets-tbl td:nth-child(2),
+  #msheet .sets-tbl td[colspan]{grid-column:1 / -1}
+  #msheet .sets-tbl td:nth-child(7){position:absolute;top:8px;right:8px;grid-column:auto}
+  #msheet .sets-tbl td input,#msheet .sets-tbl td select{width:100% !important;min-width:0;font-size:16px}
+  #msheet .sets-tbl td:nth-child(n+3):nth-child(-n+6)::before{
+    display:block;font-size:10px;font-weight:600;color:var(--ink2);
+    letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px;
+    white-space:nowrap;line-height:1.2;
+  }
+  #msheet .sets-tbl td:nth-child(3)::before{content:'Sets'}
+  #msheet .sets-tbl td:nth-child(4)::before{content:'Reps'}
+  #msheet .sets-tbl td:nth-child(5)::before{content:'kg'}
+  #msheet .sets-tbl td:nth-child(6)::before{content:'Rest'}
+  #msheet .body .row .hint{flex:1 0 100%;margin-top:2px}
+  #msheet .body label .hint{text-transform:none;letter-spacing:normal;font-weight:400}
+  #msheet .body [style*="overflow-x:auto"]{overflow-x:visible !important}
+
+  /* touch targets — 16px inputs stop iOS zooming the page on focus */
+  #msheet .body input,#msheet .body select,#msheet .body textarea{
+    font-size:16px;padding:12px 12px;border-radius:12px;
+  }
+  #msheet .body label{font-size:.78rem}
+  body.msheet-open{overflow:hidden}
+}
+
+/* the sheet is phone-only; on a wide screen the form stays where it was */
+@media (min-width:821px){
+  #msheet{display:none !important}
+}
 
 </style>
 </head>
@@ -1077,7 +1286,7 @@ function cat(e) {
   for (const c of CATS) if (c.m.test(t)) return c.k;
   return 'Other';
 }
-function catColor(k) { const f = CATS.find(c => c.k === k); return f ? f.c : (k === 'Unlogged' ? 'var(--line)' : '#8A7A6A'); }
+function catColor(k) { const f = CATS.find(c => c.k === k); return f ? f.c : (k === 'Unlogged' ? 'var(--line)' : '#A67A57'); }
 
 function sleepHours(e) {
   if (!e.sleepTime || !e.wakeTime) return null;
@@ -5621,13 +5830,13 @@ function renderFormNutrition() {
    ============================================================================ */
 const PATTERN_COLOR = {
   'Squat': 'var(--indigo)', 'Hinge': 'var(--crimson)', 'Lunge': '#7A4FA3',
-  'Horizontal push': 'var(--teal)', 'Vertical push': '#0B8C87',
+  'Horizontal push': 'var(--teal)', 'Vertical push': '#E07A1F',
   'Horizontal pull': 'var(--amber)', 'Vertical pull': '#C8901B',
-  'Core': 'var(--moss)', 'Carry': 'var(--slate)', 'Conditioning': '#B5462E', 'Isolation': '#8A7A6A'
+  'Core': 'var(--moss)', 'Carry': 'var(--slate)', 'Conditioning': '#B5462E', 'Isolation': '#A67A57'
 };
 const MUSCLE_COLOR = {
   'Legs': 'var(--indigo)', 'Glutes': '#7A4FA3', 'Chest': 'var(--teal)', 'Back': 'var(--amber)',
-  'Shoulders': 'var(--crimson)', 'Biceps': '#C8901B', 'Triceps': '#0B8C87', 'Core': 'var(--moss)', 'Full body': 'var(--slate)'
+  'Shoulders': 'var(--crimson)', 'Biceps': '#C8901B', 'Triceps': '#E07A1F', 'Core': 'var(--moss)', 'Full body': 'var(--slate)'
 };
 
 function trainDays(days) { return recent(days).slice().reverse(); }
@@ -7755,7 +7964,356 @@ function wire() {
     const src = FOODS_BUILTIN.find(f => f.name === o.dataset.override);
     addUserFood(JSON.parse(JSON.stringify(src)));
   });
+
+  try { Mobile.init(); } catch (err) { console.warn('mobile shell unavailable', err); }
 }
+/* ============================================================================
+   MOBILE SHELL
+   The phone home screen is five cards that summarise the day. Tapping one
+   slides up a sheet containing the REAL fieldset — the live DOM node is moved
+   into the sheet and moved back on close, never cloned. That is deliberate:
+   cloning would duplicate element ids and orphan every listener, the autosave
+   and the structured-sets editor. Moving keeps all of it bound.
+   ========================================================================== */
+const Mobile = {
+  MQ: '(max-width:820px)',
+  ready: false,
+  openIdx: null,
+
+  /* card order is the order a day actually gets logged in, which is not the
+     order the fieldsets sit in the form. fs is the fieldset index. */
+  CARDS: [
+    { fs: 0, key: 'body',  title: 'Body',         icon: 'M4 18a8 8 0 1116 0M12 18l4-5',
+      fields: ['weight', 'waist'] },
+    { fs: 2, key: 'food',  title: 'Food',         icon: 'M5 3v7a2.5 2.5 0 005 0V3M7.5 12v9M17.5 3c-1.4 1.8-2 3.6-2 6 0 1.8.6 2.6 2 2.6M17.5 12v9',
+      fields: ['breakfast', 'lunch', 'inBetween', 'dinner', 'supplements'] },
+    { fs: 1, key: 'train', title: 'Training',     icon: 'M4 9v6M8 6.5v11M16 6.5v11M20 9v6M8 12h8',
+      fields: ['exerciseType', 'exerciseDetails', 'walkKm', 'otherActivity'] },
+    { fs: 3, key: 'sleep', title: 'Sleep',        icon: 'M20.5 13.5A8.5 8.5 0 1110.5 3.5a6.6 6.6 0 0010 10z',
+      fields: ['sleepDate', 'sleepTime', 'wakeDate', 'wakeTime', 'sleepQuality', 'nap'] },
+    { fs: 4, key: 'feel',  title: 'How you felt', icon: 'M3 12h4l2.5-7 4 14 2.5-7h5',
+      fields: ['akkrallan', 'brainFog', 'energyPre', 'energyPost'] }
+  ],
+
+  on() { return window.matchMedia(this.MQ).matches; },
+  f() { return $('#form').elements; },
+  date() { const v = this.f().date; return (v && v.value) || today(); },
+
+  /* ---------- build ---------- */
+  init() {
+    if (this.ready) return;
+    this.ready = true;
+    this.buildHome();
+    this.buildSheet();
+    this.buildTabs();
+    this.wrapSwitchView();
+
+    $('#form').addEventListener('input', debounce(() => this.render(), 250));
+    $('#form').addEventListener('change', () => this.render());
+    window.matchMedia(this.MQ).addEventListener('change', () => {
+      if (!this.on()) this.closeSheet();
+      this.syncTabs();
+    });
+    this.render();
+  },
+
+  icon(d, w) {
+    return '<svg viewBox="0 0 24 24"' + (w ? ' stroke-width="' + w + '"' : '') + '><path d="' + d + '"></path></svg>';
+  },
+
+  buildHome() {
+    const sec = document.createElement('section');
+    sec.className = 'view';
+    sec.id = 'v-home';
+    sec.innerHTML =
+      '<div id="mhead">' +
+        '<button class="nav" id="mPrev" aria-label="Previous day">' + this.icon('M15 6l-6 6 6 6') + '</button>' +
+        '<div class="mid"><b id="mTitle">Today</b><span id="mDate"></span></div>' +
+        '<button class="nav" id="mNext" aria-label="Next day">' + this.icon('M9 6l6 6-6 6') + '</button>' +
+      '</div>' +
+      '<div id="mprog"><div class="track"><i style="width:0%"></i></div><div class="n"></div></div>' +
+      '<div id="mcards"></div>';
+    $('main').appendChild(sec);
+
+    $('#mPrev').addEventListener('click', () => this.step(-1));
+    $('#mNext').addEventListener('click', () => this.step(1));
+    $('#mcards').addEventListener('click', ev => {
+      const use = ev.target.closest('[data-muse]');
+      if (use) { ev.stopPropagation(); this.useYesterday(+use.dataset.muse); return; }
+      const card = ev.target.closest('[data-mcard]');
+      if (card) this.openSheet(+card.dataset.mcard);
+    });
+  },
+
+  buildSheet() {
+    const d = document.createElement('div');
+    d.id = 'msheet';
+    d.innerHTML =
+      '<div class="scrim" data-mclose></div>' +
+      '<div class="panel" role="dialog" aria-modal="true">' +
+        '<div class="grab"><i></i></div>' +
+        '<div class="sh"><div class="t"><b id="mshTitle"></b><span id="mshDate"></span></div>' +
+        '<button type="button" data-mclose>Done</button></div>' +
+        '<div class="body" id="mshBody"></div>' +
+      '</div>';
+    document.body.appendChild(d);
+    d.addEventListener('click', ev => { if (ev.target.closest('[data-mclose]')) this.closeSheet(); });
+    document.addEventListener('keydown', ev => { if (ev.key === 'Escape') this.closeSheet(); });
+  },
+
+  buildTabs() {
+    const nav = document.createElement('nav');
+    nav.id = 'mtabs';
+    nav.innerHTML =
+      '<button data-mv="home" aria-current="true">' +
+        this.icon('M3 10h18M8 3v4M16 3v4') +
+        '<span>Today</span></button>' +
+      '<button data-mv="log">' + this.icon('M4 6h16M4 12h16M4 18h10') + '<span>Records</span></button>' +
+      '<button class="add" data-mv="voice"><span class="pill">' + this.icon('M12 5v14M5 12h14') + '</span><span>Add</span></button>' +
+      '<button data-mv="dash">' + this.icon('M6 3h9l4 4v14a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1zM14 3v5h5M9 13h6M9 17h4') + '<span>Briefing</span></button>' +
+      '<button data-mv="you">' + this.icon('M4 21a8 8 0 0116 0') + '<span>You</span></button>';
+    /* the Today glyph needs a rect the path helper cannot draw */
+    nav.querySelector('[data-mv="home"] svg').insertAdjacentHTML('afterbegin',
+      '<rect x="3" y="5" width="18" height="16" rx="3"></rect>');
+    nav.querySelector('[data-mv="you"] svg').insertAdjacentHTML('afterbegin',
+      '<circle cx="12" cy="8" r="4"></circle>');
+    document.body.appendChild(nav);
+
+    nav.addEventListener('click', ev => {
+      const b = ev.target.closest('button[data-mv]'); if (!b) return;
+      const v = b.dataset.mv;
+      if (v === 'voice') { this.openVoice(); return; }
+      if (v === 'you') { this.openMenu(); return; }
+      switchView(v);
+      if (v === 'dash') {
+        const br = $('#briefing');
+        if (br) setTimeout(() => br.closest('.card').scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
+      }
+    });
+  },
+
+  /* switchView is the app's single view gate. Wrapping it keeps the bottom bar
+     honest no matter what triggered the change — a tab, a deep link, or the
+     code that jumps to the editor after a save. */
+  wrapSwitchView() {
+    const inner = switchView;
+    const self = this;
+    switchView = function (v) {
+      self.closeSheet();
+      inner(v);
+      self.syncTabs(v);
+      if (v === 'home') self.render();
+    };
+    /* v-home is not in the original .view sweep list, so give it the same
+       treatment the sweep gives every other view. */
+    if (!window.__mobileViewPatched) window.__mobileViewPatched = true;
+  },
+
+  syncTabs(v) {
+    const nav = $('#mtabs'); if (!nav) return;
+    const cur = v || (($$('.view.on')[0] || {}).id || '').replace('v-', '');
+    const map = { home: 'home', log: 'log', dash: 'dash' };
+    $$('#mtabs button[data-mv]').forEach(b =>
+      b.setAttribute('aria-current', String(map[cur] === b.dataset.mv)));
+  },
+
+  /* ---------- the cards ---------- */
+  fieldsets() { return $$('#form fieldset'); },
+
+  has(card) {
+    const f = this.f();
+    return card.fields.some(k => f[k] && String(f[k].value).trim() !== '');
+  },
+
+  summary(card, e) {
+    /* e is optional: when given, summarise that record instead of the form */
+    const g = k => {
+      if (e) return e[k] == null ? '' : String(e[k]);
+      const el = this.f()[k];
+      return el ? String(el.value || '').trim() : '';
+    };
+    const parts = [];
+    if (card.key === 'body') {
+      if (g('weight')) parts.push(n1(+g('weight')) + ' kg');
+      if (g('waist')) parts.push(n1(+g('waist')) + ' in');
+    } else if (card.key === 'food') {
+      const meals = [['breakfast', 'Breakfast'], ['lunch', 'lunch'],
+                     ['inBetween', 'snacks'], ['dinner', 'dinner']]
+        .filter(m => g(m[0])).map(m => m[1]);
+      if (meals.length) {
+        let t = meals.join(', ');
+        t = t.charAt(0).toUpperCase() + t.slice(1);
+        if (meals.length < 4) t += ' \u2014 ' + (4 - meals.length) + ' to go';
+        parts.push(t);
+      }
+      if (g('supplements')) parts.push('supplements');
+    } else if (card.key === 'train') {
+      if (g('exerciseType')) parts.push(g('exerciseType'));
+      if (g('walkKm')) parts.push(n1(+g('walkKm')) + ' km walked');
+      if (!parts.length && g('otherActivity')) parts.push(g('otherActivity'));
+    } else if (card.key === 'sleep') {
+      const rec = { date: g('date') || this.date(), sleepDate: g('sleepDate'), sleepTime: g('sleepTime'), wakeDate: g('wakeDate'), wakeTime: g('wakeTime') };
+      const h = sleepHours(rec);
+      if (h != null) parts.push(n1(h) + ' h');
+      if (g('sleepQuality')) parts.push(g('sleepQuality'));
+    } else if (card.key === 'feel') {
+      const ep = g('energyPre'), eo = g('energyPost');
+      if (ep || eo) parts.push((ep || '—') + ' / ' + (eo || '—'));
+      if (g('brainFog')) parts.push('fog ' + g('brainFog').toLowerCase());
+      if (g('akkrallan')) parts.push('akk ' + g('akkrallan').toLowerCase());
+    }
+    return parts.join(' · ');
+  },
+
+  yesterday() {
+    const d = shift(this.date(), -1);
+    return State.entries.find(x => x.date === d) || null;
+  },
+
+  render() {
+    if (!this.ready) return;
+    const host = $('#mcards'); if (!host) return;
+    const d = this.date();
+    const isToday = d === today();
+    $('#mTitle').textContent = isToday ? 'Today' : fmtDate ? fmtDate(d) : d;
+    $('#mDate').textContent = (fmtDateFull(d) || d).toUpperCase();
+    $('#mNext').disabled = d >= today();
+
+    const prev = this.yesterday();
+    let done = 0;
+    host.innerHTML = this.CARDS.map((c, i) => {
+      const filled = this.has(c);
+      if (filled) done++;
+      const txt = filled ? this.summary(c) : '';
+      const py = (!filled && prev) ? this.summary(c, prev) : '';
+      return '<div class="mcard' + (filled ? ' done' : '') + '" data-mcard="' + i + '" role="button" tabindex="0">' +
+        '<div class="top">' +
+          '<div class="ic">' + this.icon(c.icon) + '</div>' +
+          '<div class="tx"><b>' + esc(c.title) + '</b>' +
+            '<span class="' + (txt ? '' : 'none') + '">' + esc(txt || 'Not logged yet') + '</span></div>' +
+          '<div class="go">' + this.icon('M9 6l6 6-6 6') + '</div>' +
+        '</div>' +
+        (py ? '<div class="myest"><div class="t"><em>Yesterday</em><span>' + esc(py) + '</span></div>' +
+          '<button type="button" data-muse="' + i + '">Use</button></div>' : '') +
+      '</div>';
+    }).join('');
+
+    const pct = Math.round(done / this.CARDS.length * 100);
+    $('#mprog .track i').style.width = pct + '%';
+    $('#mprog .n').textContent = done + ' of ' + this.CARDS.length;
+    this.syncTabs();
+  },
+
+  /* ---------- actions ---------- */
+  step(dir) {
+    const d = shift(this.date(), dir);
+    if (dir > 0 && d > today()) return;
+    flushDraft();
+    openEntry(null, d);
+    switchView('home');
+  },
+
+  useYesterday(i) {
+    const c = this.CARDS[i], prev = this.yesterday();
+    if (!c || !prev) return;
+    const f = this.f();
+    let n = 0;
+    c.fields.forEach(k => {
+      const el = f[k]; if (!el) return;
+      let v = prev[k];
+      /* sleep dates are relative to the day, not literal values to copy */
+      if (k === 'sleepDate') v = shift(this.date(), -1);
+      if (k === 'wakeDate') v = this.date();
+      if (v === null || v === undefined || v === '') return;
+      el.value = v; n++;
+    });
+    if (!n) return;
+    if (c.key === 'train') { try { Sets.load(readForm ? readForm() : {}); } catch (e) { /* optional editor */ } }
+    $('#form').dispatchEvent(new Event('input', { bubbles: true }));
+    $('#form').dispatchEvent(new Event('change', { bubbles: true }));
+    this.render();
+    toast('Copied yesterday’s ' + c.title.toLowerCase());
+  },
+
+  openSheet(i) {
+    const c = this.CARDS[i]; if (!c) return;
+    const fs = this.fieldsets()[c.fs]; if (!fs) return;
+    this.closeSheet();
+    const anchor = document.createElement('div');
+    anchor.dataset.manchor = '1';
+    fs.parentNode.insertBefore(anchor, fs);
+    this._anchor = anchor;
+    this._moved = fs;
+    this.openIdx = i;
+    $('#mshTitle').textContent = c.title;
+    $('#mshDate').textContent = (fmtDateFull(this.date()) || '').toUpperCase();
+    $('#mshBody').appendChild(fs);
+    $('#msheet').classList.add('on');
+    document.body.classList.add('msheet-open');
+  },
+
+  openVoice() {
+    const vp = $('#voicePanel'); if (!vp) return;
+    this.closeSheet();
+    const anchor = document.createElement('div');
+    anchor.dataset.manchor = '1';
+    vp.parentNode.insertBefore(anchor, vp);
+    this._anchor = anchor;
+    this._moved = vp;
+    this.openIdx = 'voice';
+    $('#mshTitle').textContent = 'Speak your day';
+    $('#mshDate').textContent = (fmtDateFull(this.date()) || '').toUpperCase();
+    $('#mshBody').appendChild(vp);
+    $('#msheet').classList.add('on');
+    document.body.classList.add('msheet-open');
+  },
+
+  openMenu() {
+    this.closeSheet();
+    const admin = (typeof isAdminUser === 'function') ? isAdminUser() : false;
+    const rows = [
+      ['med', 'Profile, goals and medical'],
+      ['train', 'Training history'],
+      ['nut', 'Nutrition'],
+      ['dash', 'Full dashboard'],
+      ['entry', 'Open the full day form']
+    ];
+    if (admin) rows.push(['data', 'Data, sources and AI']);
+    this.openIdx = 'menu';
+    $('#mshTitle').textContent = 'You';
+    $('#mshDate').textContent = '';
+    $('#mshBody').innerHTML = '<ul class="menu">' + rows.map(r =>
+      '<li><button type="button" data-mgo="' + r[0] + '">' + esc(r[1]) + '</button></li>').join('') +
+      '</ul>';
+    $('#mshBody').onclick = ev => {
+      const b = ev.target.closest('[data-mgo]'); if (!b) return;
+      const v = b.dataset.mgo;
+      this.closeSheet();
+      switchView(v);
+    };
+    $('#msheet').classList.add('on');
+    document.body.classList.add('msheet-open');
+  },
+
+  closeSheet() {
+    const sheet = $('#msheet'); if (!sheet) return;
+    if (!sheet.classList.contains('on') && !this._moved) return;
+    sheet.classList.remove('on');
+    document.body.classList.remove('msheet-open');
+    $('#mshBody').onclick = null;
+    /* put the borrowed node back exactly where it came from */
+    if (this._moved && this._anchor && this._anchor.parentNode) {
+      this._anchor.parentNode.insertBefore(this._moved, this._anchor);
+      this._anchor.remove();
+    }
+    this._moved = null; this._anchor = null;
+    if (this.openIdx === 'menu') $('#mshBody').innerHTML = '';
+    this.openIdx = null;
+    if (typeof flushDraft === 'function') flushDraft();
+    this.render();
+  }
+};
+
 async function fileHasData() { return false; }
 
 /* ---------- go ---------- */
@@ -7798,7 +8356,10 @@ async function init() {
   $('#fsProject').value = Config.get('fsProject', '');
   openEntry(null, today());
   State.editingId = null;
-  switchView(State.entries.length ? 'dash' : 'data');
+  const landing = (typeof Mobile !== 'undefined' && Mobile.on())
+    ? 'home'
+    : (State.entries.length ? 'dash' : 'data');
+  switchView(landing);
   renderSaveState();
   renderStoreStats();
   renderAiSetup();
