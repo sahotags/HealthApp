@@ -5439,6 +5439,7 @@ function openEntry(id, dateHint) {
   const f = $('#form');
   const blank = { date: dateHint || today(), sleepDate: shift(dateHint || today(), -1) };
   const src = e || blank;
+  formLoadedDate = src.date || blank.date;
   FIELDS.forEach(k => {
     const el = f.elements[k]; if (!el) return;
     el.value = src[k] === null || src[k] === undefined ? '' : src[k];
@@ -5487,6 +5488,17 @@ function checkAvoid() {
 /* The form commits itself. Switching tabs, closing the day or simply pausing
    all write the record, so nothing is lost by not pressing a button. */
 let draftTimer = null, draftDirty = false;
+/* Which day the form was opened on. Needed to tell "this is the day I am
+   editing" apart from "the date was typed onto a day that already exists" —
+   two situations that reach the same collision check below. */
+let formLoadedDate = null;
+
+/* Every path out of flushDraft that does NOT save must leave the indicator
+   telling the truth. Leaving it on "Saving…" is how a refusal to save looked
+   identical to a save in progress, for minutes at a time. */
+function draftIdle() {
+  if (!Repo.busy && Repo.status === 'saving') Repo.setStatus(Repo.lastSaved ? 'saved' : 'idle');
+}
 function markDirty() { draftDirty = true; setPending(); clearTimeout(draftTimer); draftTimer = setTimeout(() => flushDraft(), 800); }
 function setPending() { Repo.setStatus('saving'); }
 function formHasContent() {
@@ -5495,14 +5507,40 @@ function formHasContent() {
 }
 function flushDraft() {
   clearTimeout(draftTimer);
-  if (!draftDirty) return false;
+  if (!draftDirty) { draftIdle(); return false; }
   const f = $('#form').elements;
-  if (!f.date.value) return false;
+  if (!f.date.value) { draftIdle(); return false; }
   const editing = State.editingId ? State.entries.find(x => x.id === State.editingId) : null;
-  if (!editing && !formHasContent()) return false;            // don't create empty days
+  if (!editing && !formHasContent()) { draftIdle(); return false; }   // don't create empty days
   const rec = readForm();
   const clash = State.entries.find(x => x.date === rec.date && x !== editing);
-  if (clash) return false;                                     // leave collisions to the explicit save
+  if (clash) {
+    /* The form can be showing a day that is already on record without being
+       BOUND to it: boot loads today into the form and then clears editingId a
+       line later. On the desktop, opening the Add tab re-binds it. On a phone
+       nothing ever did, so every edit landed here, returned false, and left the
+       pill on "Saving…" while the record never changed.
+
+       If this is the very day the form was opened on, it is not a collision at
+       all — it is the day being edited. Adopt it and save. */
+    if (!editing && rec.date === formLoadedDate) {
+      State.editingId = clash.id;
+      rec.id = clash.id;
+      touch(rec);
+      State.entries[State.entries.indexOf(clash)] = rec;
+      draftDirty = false;
+      sortEntries(State.entries); save(); buildFilterOptions();
+      $('#formMode').textContent = 'Editing ' + fmtDateFull(rec.date);
+      $('#btnDelete').style.display = '';
+      return true;
+    }
+    /* A genuine collision: the date was changed onto a day that already exists.
+       Refuse, but say so — do not stall. */
+    draftDirty = false;
+    draftIdle();
+    showBanner(fmtDateFull(rec.date) + ' already has an entry, so this was not saved. Open that day to edit it.', null);
+    return false;
+  }
 
   /* Changing the date on an already-saved day used to REPLACE that day: open
      01 Sep, set the date to 30 Aug, and 01 Sep silently became 30 Aug. Moving
@@ -8226,6 +8264,7 @@ const Mobile = {
   useYesterday(i) {
     const c = this.CARDS[i], prev = this.yesterday();
     if (!c || !prev) return;
+    this.bindDay();
     const f = this.f();
     let n = 0;
     c.fields.forEach(k => {
@@ -8255,10 +8294,20 @@ const Mobile = {
      listener that marks the draft dirty never fired. Typing on the phone
      changed nothing and said nothing. The form and its controls must stay one
      subtree — that is the whole reason this borrows the form, not a fieldset. */
+  /* Bind the form to the day it is displaying. Boot loads today's record into
+     the form and then clears editingId, so without this the first edit of an
+     already-logged day is treated as a new day colliding with an old one. */
+  bindDay() {
+    const d = this.date();
+    const ex = State.entries.find(x => x.date === d);
+    if (ex && State.editingId !== ex.id) State.editingId = ex.id;
+  },
+
   openSheet(i) {
     const c = this.CARDS[i]; if (!c) return;
     const fs = this.fieldsets()[c.fs]; if (!fs) return;
     this.closeSheet();
+    this.bindDay();
     this.borrow($('#form'));
     this.fieldsets().forEach(x => x.classList.toggle('m-open', x === fs));
     this.openIdx = i;
@@ -8270,6 +8319,7 @@ const Mobile = {
   openVoice() {
     const vp = $('#voicePanel'); if (!vp) return;   /* a sibling of the form, not part of it */
     this.closeSheet();
+    this.bindDay();
     this.borrow(vp);
     this.openIdx = 'voice';
     $('#mshTitle').textContent = 'Speak your day';
