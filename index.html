@@ -484,6 +484,23 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
 #gate input{width:100%;padding:9px 11px;background:var(--surface2);border:1px solid var(--line);border-radius:var(--r-sm);outline:none}
 #gate input:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-soft);background:var(--surface)}
 #gate input.pin{font-family:var(--mono);font-size:1.3rem;letter-spacing:.3em;text-align:center}
+/* The PIN was typed in the clear, in 1.3rem mono, on a phone held in public.
+   Masked by default, with a reveal for when a typo is more likely than a
+   shoulder. inputmode and pattern keep the numeric keypad on iOS, and the
+   autocomplete hints let the keychain remember a 7-digit number nobody will. */
+#gate .pinwrap{position:relative}
+#gate .pinwrap input{padding-right:46px}
+#gate .pinwrap .eye{
+  position:absolute;right:5px;top:50%;transform:translateY(-50%);
+  width:38px;height:38px;border:0;background:none;border-radius:50%;
+  display:grid;place-items:center;cursor:pointer;color:var(--ink3);padding:0;
+}
+#gate .pinwrap .eye:hover{color:var(--ink2);background:var(--surface2)}
+#gate .pinwrap .eye[aria-pressed="true"]{color:var(--teal)}
+#gate .pinwrap .eye svg{width:19px;height:19px;stroke:currentColor;fill:none;
+  stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+#gate .pinwrap .eye .slash{display:none}
+#gate .pinwrap .eye[aria-pressed="true"] .slash{display:block}
 #gate button.go{width:100%;margin-top:16px;padding:10px;background:var(--prim);color:var(--on-prim);border:0;border-radius:var(--r-sm);font-weight:600;cursor:pointer}
 #gate button.go:disabled{opacity:.5;cursor:not-allowed}
 #gate .swap{margin-top:14px;text-align:center;font-size:.82rem;color:var(--ink2)}
@@ -710,6 +727,98 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
   body.msheet-open{overflow:hidden}
 }
 
+
+/* ---------- barcode scanner ---------- */
+.scan-btn{display:inline-flex;align-items:center;gap:9px;padding:12px 18px;font-size:.95rem}
+.scan-btn svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+#scanner{
+  position:fixed;inset:0;z-index:95;background:var(--canvas);
+  display:none;flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);
+}
+#scanner.on{display:flex}
+#scanner .sc-head{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;
+  padding:12px 16px;border-bottom:1px solid var(--line-soft);background:var(--surface);
+}
+#scanner .sc-head .t{flex:1;min-width:0}
+#scanner .sc-head .t b{display:block;font-size:1.05rem;color:var(--ink)}
+#scanner .sc-head .t span{
+  display:block;font-size:.8rem;color:var(--ink2);margin-top:2px;line-height:1.35;
+}
+#scanner .sc-head .x{
+  flex:0 0 auto;width:44px;height:44px;border:0;border-radius:50%;
+  background:var(--surface2);color:var(--ink2);display:grid;place-items:center;cursor:pointer;
+}
+#scanner .sc-head .x svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round}
+#scanner .sc-stage{
+  flex:1 1 auto;position:relative;background:#2B1004;overflow:hidden;min-height:0;
+}
+#scanner .sc-stage.off{flex:0 0 0;min-height:0;height:0}
+#scanner .sc-stage.off ~ .sc-foot{flex:1 1 auto;max-height:none}
+#scanner .sc-stage video{width:100%;height:100%;object-fit:cover;display:block}
+/* a window rather than a box: the dim surround tells you where to aim without
+   hiding the packet you are lining up */
+#scanner .sc-frame{
+  position:absolute;left:8%;right:8%;top:50%;height:132px;transform:translateY(-50%);
+  border:2px solid rgba(255,255,255,.9);border-radius:14px;
+  box-shadow:0 0 0 100vmax rgba(43,16,4,.55);
+}
+#scanner .sc-foot{
+  flex:0 0 auto;background:var(--surface);border-top:1px solid var(--line-soft);
+  padding:14px 16px calc(18px + env(safe-area-inset-bottom,0px));
+  max-height:72vh;overflow-y:auto;
+}
+#scanner .sc-manual label{display:block;font-size:.76rem;font-weight:600;color:var(--ink2);margin-bottom:6px}
+#scanner .sc-manual .row{display:flex;gap:8px}
+#scanner .sc-manual input{
+  flex:1;min-width:0;font-family:var(--mono);font-size:16px;padding:12px;
+  background:var(--surface2);border:1px solid var(--line);border-radius:12px;
+}
+#scanner .sc-foot.hit .sc-manual{display:none}
+#scanner .sc-card{margin-top:0;border:1px solid var(--line);border-radius:16px;padding:14px;background:var(--surface)}
+#scanner .sc-name b{display:block;font-size:1.05rem;color:var(--ink);line-height:1.3}
+#scanner .sc-name span{display:block;font-size:.8rem;color:var(--ink2);margin-top:2px}
+#scanner .sc-amt{display:flex;align-items:center;gap:12px;margin-top:12px}
+#scanner .sc-amt button{
+  width:50px;height:50px;flex:0 0 auto;border:1px solid var(--line);background:var(--surface2);
+  border-radius:16px;font-size:1.4rem;font-weight:600;color:var(--ink);cursor:pointer;line-height:1;
+}
+#scanner .sc-amt .v{flex:1;text-align:center}
+#scanner .sc-amt .v input{
+  width:100%;border:0;background:none;text-align:center;font-family:var(--mono);
+  font-size:2rem;font-weight:600;color:var(--ink);letter-spacing:-.02em;padding:0;
+}
+#scanner .sc-amt .v span{display:block;font-size:.78rem;color:var(--ink2)}
+#scanner .sc-serve{font-size:.78rem;color:var(--ink2);text-align:center;margin-top:4px}
+#scanner .sc-macros{
+  display:flex;gap:7px;margin-top:13px;background:var(--surface2);
+  border-radius:13px;padding:11px 9px;
+}
+#scanner .sc-macros span{flex:1;text-align:center;font-size:.68rem;color:var(--ink2);line-height:1.3}
+#scanner .sc-macros b{display:block;font-family:var(--mono);font-size:1.05rem;color:var(--ink)}
+#scanner .sc-meals{display:flex;gap:6px;margin-top:13px}
+#scanner .sc-meals button{
+  flex:1;padding:10px 0;border:1px solid var(--line);background:var(--surface);
+  border-radius:12px;font:600 .8rem var(--sans);color:var(--ink2);cursor:pointer;
+}
+#scanner .sc-meals button.on{background:var(--prim);border-color:var(--prim);color:var(--on-prim);font-weight:700}
+#scanner .sc-go{display:flex;gap:8px;margin-top:13px}
+#scanner .sc-go .btn{flex:1;justify-content:center;padding:13px 0}
+#scanner .sc-go .btn-primary{flex:2}
+#scanner .sc-miss{margin-top:14px;border:1px dashed var(--line);border-radius:16px;padding:14px;text-align:center}
+#scanner .sc-miss b{display:block;color:var(--ink)}
+#scanner .sc-miss p{margin:6px 0 12px;font-size:.85rem;color:var(--ink2);line-height:1.5}
+@media (min-width:821px){
+  #scanner{align-items:center;justify-content:center;background:rgba(43,16,4,.5)}
+  #scanner.on{display:flex}
+  #scanner .sc-head,#scanner .sc-foot{width:min(520px,94vw);box-sizing:border-box}
+  #scanner .sc-head{border-radius:18px 18px 0 0}
+  #scanner .sc-foot{border-radius:0 0 18px 18px;border-top:0}
+  #scanner .sc-stage{flex:0 0 auto;width:min(520px,94vw);height:300px}
+}
+
 /* the sheet is phone-only; on a wide screen the form stays where it was */
 @media (min-width:821px){
   #msheet{display:none !important}
@@ -739,7 +848,7 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
       <label for="g-id">Email or mobile number</label>
       <input id="g-id" autocomplete="username" placeholder="you@example.com" autocapitalize="none" autocorrect="off" spellcheck="false">
       <label for="g-pin">PIN</label>
-      <input id="g-pin" class="pin" inputmode="numeric" maxlength="7" autocomplete="off" placeholder="•••••••">
+      <div class="pinwrap"><input id="g-pin" class="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="7" autocomplete="current-password" placeholder="•••••••"><button type="button" class="eye" data-pineye aria-label="Show PIN" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"></path><circle cx="12" cy="12" r="2.6"></circle><path class="slash" d="M4 4l16 16"></path></svg></button></div>
       <button class="go" id="g-in">Sign in</button>
       <div class="swap">No account yet? <button id="g-to-reg">Register</button></div>
       <div id="g-msg1"></div>
@@ -765,9 +874,9 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
       <div id="g-reveal-wrap" style="display:none">
         <div class="reveal" id="g-reveal">0000000</div>
       </div>
-      <label for="g-cur">Current PIN</label><input id="g-cur" class="pin" inputmode="numeric" maxlength="7">
-      <label for="g-new">New PIN — 7 digits</label><input id="g-new" class="pin" inputmode="numeric" maxlength="7">
-      <label for="g-cfm">Confirm new PIN</label><input id="g-cfm" class="pin" inputmode="numeric" maxlength="7">
+      <label for="g-cur">Current PIN</label><div class="pinwrap"><input id="g-cur" class="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="7" autocomplete="current-password"><button type="button" class="eye" data-pineye aria-label="Show PIN" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"></path><circle cx="12" cy="12" r="2.6"></circle><path class="slash" d="M4 4l16 16"></path></svg></button></div>
+      <label for="g-new">New PIN — 7 digits</label><div class="pinwrap"><input id="g-new" class="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="7" autocomplete="new-password"><button type="button" class="eye" data-pineye aria-label="Show PIN" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"></path><circle cx="12" cy="12" r="2.6"></circle><path class="slash" d="M4 4l16 16"></path></svg></button></div>
+      <label for="g-cfm">Confirm new PIN</label><div class="pinwrap"><input id="g-cfm" class="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="7" autocomplete="new-password"><button type="button" class="eye" data-pineye aria-label="Show PIN" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"></path><circle cx="12" cy="12" r="2.6"></circle><path class="slash" d="M4 4l16 16"></path></svg></button></div>
       <button class="go" id="g-set">Set PIN and open my records</button>
       <div class="swap"><button id="g-out2">Sign out</button></div>
       <div id="g-msg3"></div>
@@ -967,6 +1076,13 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
           <fieldset>
             <div class="fs-h"><span class="n">03</span><h4>Food &amp; supplements</h4><div class="rule"></div></div>
             <div class="form-grid">
+              <div class="f wide">
+                <button type="button" class="btn btn-primary scan-btn" id="btnScan">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"></path><path d="M7 8v8M10 8v8M13.5 8v8M17 8v8"></path></svg>
+                  Scan a barcode
+                </button>
+                <span class="hint">Fills in the packet's own numbers — no estimate, no Claude call.</span>
+              </div>
               <div class="f"><label for="e_b">Breakfast</label><textarea id="e_b" name="breakfast" rows="3" placeholder="Time and what you ate…"></textarea></div>
               <div class="f"><label for="e_l">Lunch</label><textarea id="e_l" name="lunch" rows="3"></textarea></div>
               <div class="f"><label for="e_i">In-between</label><textarea id="e_i" name="inBetween" rows="3"></textarea></div>
@@ -4581,6 +4697,14 @@ function parseJsonReply(text) {
   return JSON.parse(t.slice(a, b + 1));
 }
 const numOr0 = v => (v === null || v === undefined || isNaN(+v)) ? 0 : Math.round(+v * 100) / 100;
+/* One decimal place, for macro grams.
+
+   BUG: this was used by the Open Food Facts tier of AutoNut and by the barcode
+   lookup but was never actually defined, so every call threw a ReferenceError.
+   resolveLine's caller catches throws and marks the line "unresolved", so the
+   failure was invisible: Open Food Facts never once priced an item, and every
+   branded food fell through to the paid Claude call instead. */
+const r1 = v => (v === null || v === undefined || isNaN(+v)) ? 0 : Math.round(+v * 10) / 10;
 
 function normaliseDietEval(raw, e) {
   const items = (raw.items || []).map(i => ({
@@ -6699,6 +6823,10 @@ function renderAiSetup() {
       '<button class="chip" id="aiCache" aria-pressed="' + (c.caching === true) + '">Cache the role prompt on bulk runs</button></div>' +
       '<p class="hint" style="margin:8px 0 0">' + esc(cacheHint()) + '</p>';
 
+    h += '<div class="chip-row" style="margin-top:10px">' +
+      '<button class="chip" id="aiCheap">Set up for lowest cost</button></div>' +
+      '<p class="hint" style="margin:6px 0 0">Puts both jobs on the cheapest model available, keeps the 14-day trend, and limits web lookups to one search. The briefing stays useful; it just stops paying for a bigger model to do arithmetic.</p>';
+
     h += '<div class="chip-row" style="margin-top:14px"><button class="btn" id="aiTest">Test the connection</button>' +
       '<button class="btn btn-danger" id="aiWipe">Delete all saved analyses</button></div>';
     h += '<p class="hint">Analyses are cached against the day they describe and stored with your data, so re-reading one costs nothing. Editing a day marks its analysis stale rather than deleting it.</p>';
@@ -6760,9 +6888,22 @@ function renderSpend() {
     rows +
     (st.searches ? '<div class="stat-line"><span>Web searches</span><span>' + st.searches + ' · included above</span></div>' : '') +
     '<div class="stat-line"><span><b>Total since ' + esc(new Date(st.since).toLocaleDateString()) + '</b></span><span><b>' + money(st.cost) + '</b> over ' + st.calls + ' calls</span></div>' +
+    runRate(st) +
     '<p class="hint" style="margin:8px 0 0">Estimated from published rates and the token counts the API returned. Your actual bill is whatever Anthropic charges — check the Console for the authoritative figure.</p>' +
     '<div class="chip-row" style="margin-top:10px"><button class="btn btn-sm" id="aiResetSpend">Reset the counter</button></div>';
 }
+/* A total since some date answers nothing on its own. What matters is whether
+   this is a few dollars a year or a few a week, so turn it into a rate. */
+function runRate(st) {
+  const started = new Date(st.since).getTime();
+  if (!started || !st.cost) return '';
+  const days = Math.max(1, (Date.now() - started) / 864e5);
+  if (days < 2) return '';
+  const perMonth = (st.cost / days) * 30;
+  return '<div class="stat-line"><span>At this rate</span><span><b>' + money(perMonth) +
+    '</b> a month, about ' + money(st.cost / days) + ' a day</span></div>';
+}
+
 function money(v) {
   if (v == null) return '—';
   if (v < 0.01) return '<' + (0.01).toFixed(2) + ' USD';
@@ -7570,6 +7711,8 @@ function wire() {
   });
   ['exerciseDetails', 'exerciseType'].forEach(k => $('#form').elements[k].addEventListener('input', debounce(checkAvoid, 400)));
   $('#form').elements.goalId.addEventListener('change', updateGoalHint);
+  const scanBtn = $('#btnScan');
+  if (scanBtn) scanBtn.addEventListener('click', () => Scan.open());
   $('#form').addEventListener('input', markDirty);
   $('#form').addEventListener('input', debounce(renderFormNutrition, 500));
   $('#form').addEventListener('input', debounce(renderEvalPanels, 700));
@@ -7925,6 +8068,19 @@ function wire() {
       toast(on ? 'System prompt will be cached' : 'Caching off');
       return;
     }
+    if (ev.target.id === 'aiCheap') {
+      const list = await AI.listModels();
+      const cheapest = list.slice().sort((x, y) => aiPrice(x.id)[0] - aiPrice(y.id)[0])[0];
+      AI.save({
+        model: cheapest ? cheapest.id : AI.cfg.model,
+        modelEval: cheapest ? cheapest.id : AI.cfg.modelEval,
+        scope: 'context',
+        searchMaxUses: 1
+      });
+      renderAiSetup();
+      toast('Switched to ' + (cheapest ? cheapest.label : 'the cheapest model') + ' with one search per lookup');
+      return;
+    }
     if (ev.target.id === 'aiResetSpend') {
       if (!ask('Reset the spend counter to zero? This only clears the tally, not your data.')) return;
       resetUsage(); renderSpend(); toast('Counter reset');
@@ -8031,6 +8187,326 @@ function wire() {
 
   try { Mobile.init(); } catch (err) { console.warn('mobile shell unavailable', err); }
 }
+/* ============================================================================
+   BARCODE SCANNING — ADDED
+   Point the camera at a packet, get the product and its real numbers.
+
+   Decoding happens in three tiers, cheapest first:
+     1. BarcodeDetector   — built into Chrome on Android. No download at all.
+     2. ZXing from a CDN  — Safari has no BarcodeDetector, and Safari on an
+                            iPhone is what this app is mostly used on. Loaded
+                            only when the scanner is first opened, so it costs
+                            nothing on a normal page load.
+     3. Type the number   — every barcode has its digits printed underneath.
+                            Works with no camera, no permission and no network
+                            to a CDN, which also makes it the fallback when the
+                            other two are blocked.
+
+   The lookup is Open Food Facts, the same free no-key source AutoNut already
+   uses, so nothing new needs an API key.
+
+   What gets written is a line carrying the numbers themselves —
+   "Weet-Bix 60 g (213 kcal, 7.2 g protein, …)" — because declaredMacros()
+   treats stated numbers as ground truth. The scan therefore prices the item
+   permanently, with no second lookup and no Claude call, ever.
+   ========================================================================== */
+const ZXING_URLS = [
+  'https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/zxing-library/0.23.0/index.min.js',
+  'https://unpkg.com/@zxing/library@0.23.0/umd/index.min.js'
+];
+let zxingPromise = null;
+function loadZxing() {
+  if (window.ZXing) return Promise.resolve(window.ZXing);
+  if (zxingPromise) return zxingPromise;
+  zxingPromise = ZXING_URLS.reduce((chain, url) => chain.catch(() => new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = url;
+    s.onload = () => window.ZXing ? res(window.ZXing) : rej(new Error('bad load'));
+    s.onerror = () => rej(new Error('blocked'));
+    document.head.appendChild(s);
+  })), Promise.reject());
+  return zxingPromise;
+}
+
+const Scan = {
+  meal: 'breakfast',
+  product: null,
+  grams: 100,
+  reader: null,
+  stream: null,
+  detector: null,
+  looping: false,
+
+  /* which meal a scan belongs to, guessed from the clock and overridable */
+  mealNow() {
+    const h = new Date().getHours();
+    if (h < 11) return 'breakfast';
+    if (h < 15) return 'lunch';
+    if (h < 18) return 'inBetween';
+    return 'dinner';
+  },
+
+  build() {
+    if ($('#scanner')) return;
+    const d = document.createElement('div');
+    d.id = 'scanner';
+    d.innerHTML =
+      '<div class="sc-head">' +
+        '<div class="t"><b>Scan a barcode</b><span id="scStatus">Starting the camera…</span></div>' +
+        '<button type="button" class="x" id="scClose" aria-label="Close">' +
+        '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>' +
+      '</div>' +
+      '<div class="sc-stage"><video id="scVideo" playsinline muted autoplay></video>' +
+        '<div class="sc-frame"></div></div>' +
+      '<div class="sc-foot">' +
+        '<div class="sc-manual">' +
+          '<label for="scCode">Or type the number printed under the barcode</label>' +
+          '<div class="row">' +
+            '<input id="scCode" inputmode="numeric" pattern="[0-9]*" maxlength="14" placeholder="9300605123456">' +
+            '<button type="button" class="btn btn-primary" id="scGo">Look up</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="scResult"></div>' +
+      '</div>';
+    document.body.appendChild(d);
+
+    $('#scClose').addEventListener('click', () => this.close());
+    $('#scGo').addEventListener('click', () => {
+      const c = ($('#scCode').value || '').replace(/\D/g, '');
+      if (c.length < 6) { this.say('That does not look like a barcode number.'); return; }
+      this.found(c);
+    });
+    $('#scCode').addEventListener('keydown', ev => { if (ev.key === 'Enter') $('#scGo').click(); });
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && $('#scanner') && $('#scanner').classList.contains('on')) this.close();
+    });
+    $('#scResult').addEventListener('click', ev => {
+      const m = ev.target.closest('[data-scmeal]');
+      if (m) { this.meal = m.dataset.scmeal; this.renderResult(); return; }
+      const g = ev.target.closest('[data-scg]');
+      if (g) { this.setGrams(this.grams + (+g.dataset.scg)); return; }
+      if (ev.target.closest('#scAdd')) { this.add(); return; }
+      if (ev.target.closest('#scAgain')) { this.product = null; this.renderResult(); this.start(); return; }
+    });
+    $('#scResult').addEventListener('input', ev => {
+      if (ev.target.id === 'scGrams') this.setGrams(+ev.target.value, true);
+    });
+  },
+
+  say(msg) { const el = $('#scStatus'); if (el) el.textContent = msg; },
+
+  async open(meal) {
+    this.build();
+    this.meal = meal || this.mealNow();
+    this.product = null;
+    $('#scResult').innerHTML = '';
+    $('#scCode').value = '';
+    $('#scanner').classList.add('on');
+    document.body.classList.add('msheet-open');
+    await this.start();
+  },
+
+  async start() {
+    const video = $('#scVideo'); if (!video) return;
+    this.say('Starting the camera…');
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+        throw new Error('this browser has no camera access');
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false
+      });
+      video.srcObject = this.stream;
+      await video.play().catch(() => {});
+      this.say('Hold the barcode inside the frame');
+    } catch (e) {
+      /* denied, no camera, or an insecure context: the typed path still works */
+      this.say('No camera — type the number below instead.');
+      const stage = $('.sc-stage'); if (stage) stage.classList.add('off');
+      setTimeout(() => { const c = $('#scCode'); if (c) c.focus(); }, 150);
+      return;
+    }
+
+    if ('BarcodeDetector' in window) {
+      try {
+        this.detector = new window.BarcodeDetector({
+          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128']
+        });
+        this.loopDetector(video);
+        return;
+      } catch (e) { this.detector = null; }
+    }
+    try {
+      const ZX = await loadZxing();
+      const hints = new Map([[ZX.DecodeHintType.POSSIBLE_FORMATS, [
+        ZX.BarcodeFormat.EAN_13, ZX.BarcodeFormat.EAN_8,
+        ZX.BarcodeFormat.UPC_A, ZX.BarcodeFormat.UPC_E, ZX.BarcodeFormat.CODE_128
+      ]]]);
+      this.reader = new ZX.BrowserMultiFormatReader(hints, 300);
+      this.reader.decodeFromConstraints(
+        { video: { facingMode: { ideal: 'environment' } } }, video,
+        (result) => { if (result) this.found(result.getText()); }
+      ).catch(() => this.say('Could not read from the camera — type the number below.'));
+    } catch (e) {
+      this.say('Scanner could not load — type the number below instead.');
+    }
+  },
+
+  async loopDetector(video) {
+    if (this.looping) return;
+    this.looping = true;
+    const tick = async () => {
+      if (!this.looping || !this.detector || !$('#scanner').classList.contains('on')) return;
+      try {
+        const hits = await this.detector.detect(video);
+        if (hits && hits.length) { this.found(hits[0].rawValue); return; }
+      } catch (e) { /* a frame that would not decode; try the next one */ }
+      setTimeout(tick, 220);
+    };
+    tick();
+  },
+
+  stop() {
+    this.looping = false;
+    this.detector = null;
+    try { if (this.reader) this.reader.reset(); } catch (e) { /* already stopped */ }
+    this.reader = null;
+    try { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); } catch (e) { /* gone */ }
+    this.stream = null;
+    const v = $('#scVideo'); if (v) v.srcObject = null;
+  },
+
+  close() {
+    this.stop();
+    const el = $('#scanner'); if (el) el.classList.remove('on');
+    if (!$('#msheet') || !$('#msheet').classList.contains('on'))
+      document.body.classList.remove('msheet-open');
+  },
+
+  async found(code) {
+    this.stop();
+    const stage = $('.sc-stage'); if (stage) stage.classList.add('off');
+    this.say('Looking up ' + code + '…');
+    const p = await this.lookup(code);
+    if (!p) {
+      this.say('Nothing on file for ' + code + '.');
+      $('#scResult').innerHTML =
+        '<div class="sc-miss"><b>Not in the food database</b>' +
+        '<p>Open Food Facts has no entry for this barcode. Type what it is into the meal and the usual estimate will handle it.</p>' +
+        '<button type="button" class="btn" id="scAgain">Scan another</button></div>';
+      return;
+    }
+    this.product = p;
+    this.setGrams(p.serving || 100);
+    this.say(p.name);
+  },
+
+  /* Open Food Facts by barcode — same free source AutoNut already uses */
+  async lookup(code) {
+    const url = 'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) +
+      '.json?fields=product_name,brands,quantity,serving_quantity,serving_size,nutriments';
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(url, { signal: ctl.signal });
+      clearTimeout(timer);
+      if (!r.ok) return null;
+      const j = await r.json();
+      if (!j || j.status === 0 || !j.product) return null;
+      const p = j.product, n = p.nutriments || {};
+      const kcal100 = n['energy-kcal_100g'] != null ? n['energy-kcal_100g']
+        : (n.energy_100g != null ? n.energy_100g / 4.184 : null);
+      if (kcal100 == null) return null;
+      return {
+        code: code,
+        name: [p.brands ? String(p.brands).split(',')[0].trim() : '', p.product_name]
+          .filter(Boolean).join(' ').trim() || ('Barcode ' + code),
+        pack: p.quantity || '',
+        serving: numOr0(p.serving_quantity) || 0,
+        servingText: p.serving_size || '',
+        per100: {
+          kcal: kcal100, protein: n.proteins_100g || 0, carbs: n.carbohydrates_100g || 0,
+          fat: n.fat_100g || 0, sugar: n.sugars_100g || 0, fibre: n.fiber_100g || 0
+        }
+      };
+    } catch (e) { return null; }
+  },
+
+  setGrams(g, fromInput) {
+    this.grams = Math.max(1, Math.min(2000, Math.round(g || 0) || 100));
+    this.renderResult(fromInput);
+  },
+
+  macros() {
+    const f = this.grams / 100, p = this.product.per100;
+    return {
+      kcal: Math.round(p.kcal * f), protein: r1(p.protein * f), carbs: r1(p.carbs * f),
+      fat: r1(p.fat * f), sugar: r1(p.sugar * f), fibre: r1(p.fibre * f)
+    };
+  },
+
+  /* the line written into the meal, carrying its own numbers so nothing has to
+     look this item up again — not Open Food Facts, and certainly not Claude */
+  line() {
+    const m = this.macros();
+    return this.product.name + ' ' + this.grams + ' g (' + m.kcal + ' kcal, ' +
+      m.protein + ' g protein, ' + m.carbs + ' g carbs, ' + m.fat + ' g fat)';
+  },
+
+  renderResult(keepFocus) {
+    const el = $('#scResult'); if (!el) return;
+    const foot = $('.sc-foot'); if (foot) foot.classList.toggle('hit', !!this.product);
+    if (!this.product) { el.innerHTML = ''; return; }
+    const m = this.macros(), p = this.product;
+    const label = { breakfast: 'Breakfast', lunch: 'Lunch', inBetween: 'Snacks', dinner: 'Dinner' };
+    el.innerHTML =
+      '<div class="sc-card">' +
+        '<div class="sc-name"><b>' + esc(p.name) + '</b>' +
+        (p.pack ? '<span>' + esc(p.pack) + '</span>' : '') + '</div>' +
+        '<div class="sc-amt">' +
+          '<button type="button" data-scg="-10" aria-label="Less">−</button>' +
+          '<div class="v"><input id="scGrams" inputmode="numeric" pattern="[0-9]*" value="' + this.grams + '"><span>grams</span></div>' +
+          '<button type="button" data-scg="10" aria-label="More">+</button>' +
+        '</div>' +
+        (p.servingText ? '<div class="sc-serve">One serving is ' + esc(p.servingText) + '</div>' : '') +
+        '<div class="sc-macros">' +
+          '<span><b>' + m.kcal + '</b>kcal</span><span><b>' + m.protein + '</b>g protein</span>' +
+          '<span><b>' + m.carbs + '</b>g carbs</span><span><b>' + m.fat + '</b>g fat</span>' +
+        '</div>' +
+        '<div class="sc-meals">' + MEAL_KEYS.map(k =>
+          '<button type="button" data-scmeal="' + k + '"' +
+          (this.meal === k ? ' class="on"' : '') + '>' + label[k] + '</button>').join('') + '</div>' +
+        '<div class="sc-go">' +
+          '<button type="button" class="btn" id="scAgain">Scan another</button>' +
+          '<button type="button" class="btn btn-primary" id="scAdd">Add to ' + label[this.meal] + '</button>' +
+        '</div>' +
+      '</div>';
+    if (keepFocus) { const i = $('#scGrams'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+  },
+
+  add() {
+    if (!this.product) return;
+    const f = $('#form').elements, el = f[this.meal];
+    if (!el) { toast('Could not find that meal field', true); return; }
+    if (typeof Mobile !== 'undefined' && Mobile.ready && Mobile.on()) Mobile.bindDay();
+    const cur = String(el.value || '').trim();
+    el.value = (cur ? cur + '\n' : '') + this.line();
+    /* the form owns the autosave and the live nutrition panel; let them run */
+    $('#form').dispatchEvent(new Event('input', { bubbles: true }));
+    $('#form').dispatchEvent(new Event('change', { bubbles: true }));
+    try { if (typeof Mobile !== 'undefined' && Mobile.ready) { Mobile.grow(el); Mobile.render(); } } catch (e) { /* desktop */ }
+    toast('Added to ' + this.meal.replace('inBetween', 'snacks'));
+    this.product = null;
+    /* adding can be driven from outside the scanner UI, so nothing here may
+       assume the overlay is on screen */
+    const res = $('#scResult'); if (res) res.innerHTML = '';
+    const code = $('#scCode'); if (code) code.value = '';
+    const stage = $('.sc-stage'); if (stage) stage.classList.remove('off');
+    const open = $('#scanner') && $('#scanner').classList.contains('on');
+    if (open) this.start();           /* straight on to the next packet */
+  }
+};
+
 /* ============================================================================
    MOBILE SHELL
    The phone home screen is five cards that summarise the day. Tapping one
@@ -8895,6 +9371,26 @@ async function migrateLegacyFirestore() {
   g('g-to-reg').onclick = () => { note('g-msg1', '', ''); pane('g-register'); };
   g('g-to-in').onclick = () => { note('g-msg2', '', ''); pane('g-signin'); };
   g('g-out2').onclick = () => { Account.signOut(); location.reload(); };
+
+  /* PIN fields are masked. Reveal is per-field and never sticky: it reverts the
+     moment focus leaves, so an uncovered PIN cannot be left on screen. */
+  $('#gate').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-pineye]'); if (!b) return;
+    const input = b.parentNode.querySelector('input'); if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    b.setAttribute('aria-pressed', String(show));
+    b.setAttribute('aria-label', show ? 'Hide PIN' : 'Show PIN');
+    input.focus();
+  });
+  $$('#gate .pinwrap input').forEach(input => {
+    input.addEventListener('blur', () => {
+      if (input.type !== 'text') return;
+      input.type = 'password';
+      const b = input.parentNode.querySelector('[data-pineye]');
+      if (b) { b.setAttribute('aria-pressed', 'false'); b.setAttribute('aria-label', 'Show PIN'); }
+    });
+  });
 
   g('g-in').onclick = async () => {
     const b = g('g-in'); b.disabled = true; note('g-msg1', 'info', 'Checking those details…');
