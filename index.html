@@ -669,8 +669,11 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
   #msheet .sh{position:sticky;top:0;z-index:2;background:var(--surface)}
   #msheet .grab{cursor:grab;touch-action:none}
   #msheet .panel.dragging{transition:none}
-  /* a textarea fixed at 3 rows clipped the meal you were halfway through typing */
-  #msheet .body textarea{min-height:88px;resize:none;overflow:hidden}
+  /* a textarea fixed at 3 rows clipped the meal you were halfway through typing.
+     overflow is set per field by Mobile.grow(): hidden while the box still
+     fits its content, auto once it hits the cap, so the caret is always
+     reachable. */
+  #msheet .body textarea{min-height:88px;resize:none}
   #msheet .body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 16px calc(22px + env(safe-area-inset-bottom,0px))}
   #msheet .body fieldset{border:0;padding:0;margin:0}
   #msheet .body #form fieldset{display:none}
@@ -693,35 +696,49 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
      desktop and unusable at 390px, so on a phone each exercise becomes a card:
      type and name full width, then the four numbers in a row under their own
      labels. Pure CSS — the markup, the ids and the handlers are untouched. */
-  #msheet .sets-tbl,#msheet .sets-tbl tbody,#msheet .sets-tbl tr,#msheet .sets-tbl td{display:block}
-  #msheet .sets-tbl thead{display:none}
-  #msheet .sets-tbl{border-spacing:0}
-  #msheet .sets-tbl tr{
+  .sets-tbl,.sets-tbl tbody,.sets-tbl tr,.sets-tbl td{display:block}
+  .sets-tbl thead{display:none}
+  .sets-tbl{border-spacing:0}
+  .sets-tbl tr{
     position:relative;background:var(--surface);border:1px solid var(--line);
     border-radius:12px;padding:10px 42px 10px 10px;margin-bottom:8px;
     display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
   }
-  #msheet .sets-tbl td{padding:0}
-  #msheet .sets-tbl td:nth-child(1),#msheet .sets-tbl td:nth-child(2),
-  #msheet .sets-tbl td[colspan]{grid-column:1 / -1}
-  #msheet .sets-tbl td:nth-child(7){position:absolute;top:8px;right:8px;grid-column:auto}
-  #msheet .sets-tbl td input,#msheet .sets-tbl td select{width:100% !important;min-width:0;font-size:16px}
-  #msheet .sets-tbl td:nth-child(n+3):nth-child(-n+6)::before{
+  .sets-tbl td{padding:0}
+  .sets-tbl td:nth-child(1),.sets-tbl td:nth-child(2),
+  .sets-tbl td[colspan]{grid-column:1 / -1}
+  .sets-tbl td:nth-child(7){position:absolute;top:8px;right:8px;grid-column:auto}
+  .sets-tbl td input,.sets-tbl td select{width:100% !important;min-width:0;font-size:16px}
+  .sets-tbl td:nth-child(n+3):nth-child(-n+6)::before{
     display:block;font-size:10px;font-weight:600;color:var(--ink2);
     letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px;
     white-space:nowrap;line-height:1.2;
   }
-  #msheet .sets-tbl td:nth-child(3)::before{content:'Sets'}
-  #msheet .sets-tbl td:nth-child(4)::before{content:'Reps'}
-  #msheet .sets-tbl td:nth-child(5)::before{content:'kg'}
-  #msheet .sets-tbl td:nth-child(6)::before{content:'Rest'}
+  .sets-tbl td:nth-child(3)::before{content:'Sets'}
+  .sets-tbl td:nth-child(4)::before{content:'Reps'}
+  .sets-tbl td:nth-child(5)::before{content:'kg'}
+  .sets-tbl td:nth-child(6)::before{content:'Rest'}
   #msheet .body .row .hint{flex:1 0 100%;margin-top:2px}
   #msheet .body label .hint{text-transform:none;letter-spacing:normal;font-weight:400}
-  #msheet .body [style*="overflow-x:auto"]{overflow-x:visible !important}
+  .view [style*="overflow-x:auto"]{overflow-x:visible !important}
 
-  /* touch targets — 16px inputs stop iOS zooming the page on focus */
+  /* Touch targets, app-wide.
+
+     Every field in this app was 14px, which is below the threshold at which
+     iOS Safari zooms the whole page the moment a field takes focus — then
+     leaves it zoomed. It was fixed inside the sheet and nowhere else, so
+     signing in, searching records, editing the profile and the full day form
+     all still did it. 16px is the rule, and 44px is the smallest target a
+     thumb hits reliably. */
+  input,select,textarea{font-size:16px}
+  input:not([type="checkbox"]):not([type="radio"]),select{min-height:44px}
+  button,.btn,.chip{min-height:40px}
   #msheet .body input,#msheet .body select,#msheet .body textarea{
-    font-size:16px;padding:12px 12px;border-radius:12px;
+    padding:12px 12px;border-radius:12px;
+  }
+  /* the browser's default blue ring was showing through in the sheet */
+  #msheet .body input:focus,#msheet .body select:focus,#msheet .body textarea:focus{
+    outline:none;border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-soft);
   }
   #msheet .body label{font-size:.78rem}
   body.msheet-open{overflow:hidden}
@@ -858,9 +875,9 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
       <h2>Sign in</h2>
       <p class="sub">Your records are stored per account. Nobody else can read them.</p>
       <label for="g-id">Email or mobile number</label>
-      <input id="g-id" autocomplete="username" placeholder="you@example.com" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <input id="g-id" type="text" inputmode="email" enterkeyhint="next" autocomplete="username" placeholder="you@example.com" autocapitalize="none" autocorrect="off" spellcheck="false">
       <label for="g-pin">PIN</label>
-      <div class="pinwrap"><input id="g-pin" class="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="7" autocomplete="current-password" placeholder="•••••••"><button type="button" class="eye" data-pineye aria-label="Show PIN" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"></path><circle cx="12" cy="12" r="2.6"></circle><path class="slash" d="M4 4l16 16"></path></svg></button></div>
+      <div class="pinwrap"><input id="g-pin" class="pin" type="password" inputmode="numeric" pattern="[0-9]*" enterkeyhint="go" maxlength="7" autocomplete="current-password" placeholder="•••••••"><button type="button" class="eye" data-pineye aria-label="Show PIN" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"></path><circle cx="12" cy="12" r="2.6"></circle><path class="slash" d="M4 4l16 16"></path></svg></button></div>
       <button class="go" id="g-in">Sign in</button>
       <div class="swap">No account yet? <button id="g-to-reg">Register</button></div>
       <div id="g-msg1"></div>
@@ -870,9 +887,9 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
     <div id="g-register" style="display:none">
       <h2>Create an account</h2>
       <p class="sub">Your starting PIN is built from your date of birth and phone number. You'll replace it straight away.</p>
-      <label for="g-name">Full name</label><input id="g-name" placeholder="Alex Morgan">
-      <label for="g-email">Email</label><input id="g-email" type="email" placeholder="you@example.com" autocapitalize="none" autocorrect="off" spellcheck="false">
-      <label for="g-phone">Mobile number</label><input id="g-phone" placeholder="0449 732 561" inputmode="tel" autocorrect="off">
+      <label for="g-name">Full name</label><input id="g-name" type="text" autocapitalize="words" autocomplete="name" enterkeyhint="next" placeholder="Alex Morgan">
+      <label for="g-email">Email</label><input id="g-email" type="email" inputmode="email" enterkeyhint="next" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@example.com">
+      <label for="g-phone">Mobile number</label><input id="g-phone" type="tel" inputmode="tel" autocomplete="tel" enterkeyhint="next" autocorrect="off" placeholder="0449 732 561">
       <label for="g-dob">Date of birth</label><input id="g-dob" type="date">
       <button class="go" id="g-reg">Create account</button>
       <div class="swap">Already registered? <button id="g-to-in">Sign in</button></div>
@@ -999,16 +1016,16 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
       <div class="card-b">
         <div class="filters">
           <div class="f" style="grid-column:span 2"><label for="fq">Search everything</label>
-            <input id="fq" type="search" placeholder="any word from any field"></div>
+            <input id="fq" type="search" inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" placeholder="any word from any field"></div>
           <div class="f"><label for="ffrom">From</label><input id="ffrom" type="date"></div>
           <div class="f"><label for="fto">To</label><input id="fto" type="date"></div>
           <div class="f"><label for="fgoal">Goal</label><select id="fgoal"></select></div>
           <div class="f"><label for="fcat">Training</label><select id="fcat"></select></div>
           <div class="f"><label for="fakk">Akkrallan</label><select id="fakk"></select></div>
           <div class="f"><label for="fsq">Sleep quality</label><select id="fsq"></select></div>
-          <div class="f"><label for="fwmin">Weight ≥</label><input id="fwmin" type="number" step="0.1" placeholder="kg"></div>
-          <div class="f"><label for="fwmax">Weight ≤</label><input id="fwmax" type="number" step="0.1" placeholder="kg"></div>
-          <div class="f"><label for="fkm">Walked ≥</label><input id="fkm" type="number" step="0.5" placeholder="km"></div>
+          <div class="f"><label for="fwmin">Weight ≥</label><input id="fwmin" type="number" inputmode="decimal" step="0.1" placeholder="kg"></div>
+          <div class="f"><label for="fwmax">Weight ≤</label><input id="fwmax" type="number" inputmode="decimal" step="0.1" placeholder="kg"></div>
+          <div class="f"><label for="fkm">Walked ≥</label><input id="fkm" type="number" inputmode="decimal" step="0.5" placeholder="km"></div>
         </div>
         <div class="chip-row" style="margin-top:12px">
           <button class="chip" data-quick="7">Last 7 days</button>
@@ -9032,11 +9049,36 @@ const Mobile = {
   /* a fixed 3-row textarea clipped whatever you were halfway through typing */
   grow(el) {
     const list = el ? [el] : $$('#mshBody textarea');
+    const body = $('#mshBody');
+    const room = body ? body.clientHeight : 0;
+    /* One field must never fill the whole sheet: with the keyboard up there is
+       about 420px to work with, and a 360px box leaves no sight of the caret or
+       of which meal you are in. */
+    const cap = room ? Math.max(120, Math.min(360, Math.round(room * 0.55))) : 360;
     list.forEach(t => {
       if (!t.closest('#mshBody')) return;
+      const before = t.offsetHeight;
       t.style.height = 'auto';
-      t.style.height = Math.min(360, Math.max(88, t.scrollHeight + 2)) + 'px';
+      const want = Math.min(cap, Math.max(88, t.scrollHeight + 2));
+      t.style.height = want + 'px';
+      /* BUG: these were styled overflow:hidden. Past the cap the text was not
+         just unscrolled but unreachable — the caret moved below the clip and
+         there was no way to bring it back, which is the cursor "disappearing".
+         Past the cap the field has to scroll inside itself. */
+      t.style.overflowY = (t.scrollHeight > want + 1) ? 'auto' : 'hidden';
+      if (t === document.activeElement) this.keepCaret(t, t.offsetHeight - before);
     });
+  },
+
+  /* Hold the line you are typing still as the box grows, and keep it clear of
+     the bottom edge — the browser will scroll it to exactly the edge, which is
+     where the keyboard covers it. */
+  keepCaret(el, grew) {
+    const body = $('#mshBody'); if (!body) return;
+    if (grew > 0) body.scrollTop += grew;
+    const r = el.getBoundingClientRect(), br = body.getBoundingClientRect();
+    const over = r.bottom + 28 - br.bottom;
+    if (over > 0) body.scrollTop += over;
   },
 
   /* drag the header down to put the sheet away — the gesture the chevron implies */
