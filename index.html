@@ -722,6 +722,26 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
   #msheet .body label .hint{text-transform:none;letter-spacing:normal;font-weight:400}
   .view [style*="overflow-x:auto"]{overflow-x:visible !important}
 
+  /* Records: the filter panel folds away, leaving the search box */
+  #filterCard:not(.open) .filters > .f:not(:first-child){display:none}
+  #filterCard:not(.open) .chip-row{display:none}
+  #filterCard .filters > .f:first-child{grid-column:1 / -1}
+
+  /* The log table is twelve columns and 1030px wide — on a 390px screen you saw
+     four of them and had to drag sideways for the rest. Show the five that
+     answer "what happened that day"; the whole record is one tap away. */
+  #tbl th:nth-child(3),#tbl td:nth-child(3),      /* waist */
+  #tbl th:nth-child(6),#tbl td:nth-child(6),      /* sleep */
+  #tbl th:nth-child(8),#tbl td:nth-child(8),      /* volume */
+  #tbl th:nth-child(9),#tbl td:nth-child(9),      /* akkrallan */
+  #tbl th:nth-child(10),#tbl td:nth-child(10),    /* energy */
+  #tbl th:nth-child(11),#tbl td:nth-child(11),    /* food */
+  #tbl th:nth-child(12),#tbl td:nth-child(12){display:none}
+  #tbl td,#tbl th{padding:10px 8px}
+  #tbl .pill{font-size:10px;padding:2px 7px}
+  /* the pill already says Strength; saying it twice costs a column's width */
+  #tbl .exname{display:none}
+
   /* Touch targets, app-wide.
 
      Every field in this app was 14px, which is below the threshold at which
@@ -938,7 +958,7 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
       <div class="card-h">
         <div><div class="eyebrow">Integrative health review</div><h3 style="margin-top:2px">Daily briefing</h3></div>
         <div class="spacer"></div>
-        <input type="date" id="briefDate" style="width:auto">
+        <input type="date" id="briefDate" aria-label="Day to brief on" style="width:auto">
         <button class="btn btn-sm" id="briefToday">Latest</button>
       </div>
       <div class="card-b" id="briefing"></div>
@@ -1006,10 +1026,11 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
 
   <!-- ============ ENTRIES ============ -->
   <section class="view" id="v-log">
-    <div class="card">
+    <div class="card" id="filterCard">
       <div class="card-h">
         <h3>Find entries</h3>
         <div class="spacer"></div>
+        <button class="btn btn-sm" id="fToggle" aria-expanded="false">Filters</button>
         <button class="btn btn-sm" id="fReset">Clear filters</button>
         <button class="btn btn-sm" id="fCsv">Export these as CSV</button>
       </div>
@@ -1206,13 +1227,13 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
     </div>
 
     <div class="section-t"><h2>Strength over time</h2><div class="rule"></div>
-      <select id="liftPick" style="width:auto;max-width:230px"></select></div>
+      <select id="liftPick" aria-label="Which lift to chart" style="width:auto;max-width:230px"></select></div>
     <div class="card"><div class="card-b"><svg class="chart" id="chLift"></svg>
       <p class="hint" id="liftNote" style="margin:8px 0 0"></p>
       <p class="hint" style="margin:4px 0 0">Estimated 1RM uses the Epley formula and is only shown for sets of 12 reps or fewer, where it is reasonably reliable. It is an estimate, not a tested maximum.</p></div></div>
 
     <div class="section-t"><h2>A single session</h2><div class="rule"></div>
-      <input type="date" id="trainDate" style="width:auto"></div>
+      <input type="date" id="trainDate" aria-label="Day to show" style="width:auto"></div>
     <div class="card"><div class="card-b" id="trainBreak"></div></div>
 
     <div class="section-t"><h2>Lines not recognised</h2><div class="rule"></div><span class="hint" id="trainUnCount"></span></div>
@@ -1249,7 +1270,7 @@ tbody tr:nth-child(5){animation-delay:.05s} tbody tr:nth-child(n+6){animation-de
     </div>
 
     <div class="section-t"><h2>A single day, item by item</h2><div class="rule"></div>
-      <input type="date" id="nutDate" style="width:auto"></div>
+      <input type="date" id="nutDate" aria-label="Day to show" style="width:auto"></div>
     <div class="card"><div class="card-b" id="dayBreak"></div></div>
 
     <div class="section-t"><h2>Not recognised</h2><div class="rule"></div><span class="hint" id="unmatchedCount"></span></div>
@@ -2469,11 +2490,16 @@ function nutritionFor(e) {
     MEAL_KEYS.forEach(k => meals[k] = []);
     ev.items.forEach(i => {
       const it = { text: i.text || i.name, matched: true, food: i.name, amount: i.qty, unit: i.unit, estimated: !!i.assumed, suspect: false, confidence: i.confidence };
-      MACROS.forEach(m => it[m] = i[m] || 0);
+      MACROS.forEach(m => it[m] = numOr0(i[m]));
       (meals[i.meal] || meals.lunch).push(it);
     });
+    /* ev.totals comes from storage and may predate a macro: sodium was added
+       after some of these were written, so `tot.sodium += undefined` made the
+       whole Nutrition average NaN. Fill every macro, coerced. */
+    const totals = {};
+    MACROS.forEach(m => totals[m] = numOr0(ev.totals && ev.totals[m]));
     const n = {
-      meals: meals, totals: ev.totals, items: ev.items.length, matched: ev.items.length,
+      meals: meals, totals: totals, items: ev.items.length, matched: ev.items.length,
       coverage: ev.items.length ? 1 : null, hasFood: ev.items.length > 0,
       source: 'ai', model: ev.model, at: ev.at, notes: ev.notes, ignored: ev.ignored
     };
@@ -2772,9 +2798,10 @@ function trainingFor(e) {
     const k = 'ai:' + e.date + ':' + ev.sig + ':' + ev.at;
     if (_trainCache[k]) return _trainCache[k];
     const lifts = ev.exercises.map(x => ({
-      text: x.text || x.name, matched: true, volume: x.volume, tut: x.tut, iso: x.iso,
-      reps: x.sets.reduce((s, f) => s + f.sets * f.reps, 0),
-      sets: x.sets.map(f => ({ weight: f.weight, sets: f.sets, reps: f.reps })),
+      text: x.text || x.name, matched: true,
+      volume: numOr0(x.volume), tut: numOr0(x.tut), iso: x.iso,
+      reps: (x.sets || []).reduce((s, f) => s + numOr0(f.sets) * numOr0(f.reps), 0),
+      sets: (x.sets || []).map(f => ({ weight: numOr0(f.weight), sets: numOr0(f.sets), reps: numOr0(f.reps) })),
       lift: { name: x.name, key: nkeyLift(x.name), pattern: x.pattern, groups: x.groups, iso: x.iso }
     }));
     const patterns = {}, muscles = {};
@@ -2784,14 +2811,25 @@ function trainingFor(e) {
       l.lift.groups.forEach(g => muscles[g] = (muscles[g] || 0) + sd / l.lift.groups.length);
     });
     const acts = (ev.activities || []).map(a => ({ text: a.name, name: a.name, minutes: a.minutes, met: 4.5, passive: /massage|scooter|ride/i.test(a.name), assumed: false }));
-    const walkKm = e.walkKm || 0, walkMin = walkKm ? (walkKm / 5) * 60 : 0;
-    const liftMin = lifts.length ? Math.max(15, Math.round(lifts.length * 4 + ev.tut / 60)) : 0;
+    const walkKm = numOr0(e.walkKm), walkMin = walkKm ? (walkKm / 5) * 60 : 0;
+    const evTut = numOr0(ev.tut) || lifts.reduce((t, l) => t + numOr0(l.tut), 0);
+    const liftMin = lifts.length ? Math.max(15, Math.round(lifts.length * 4 + evTut / 60)) : 0;
     const actMin = acts.filter(a => !a.passive).reduce((s, a) => s + a.minutes, 0);
     const kg = latestWeightBefore(e.date) || 80;
     const n = {
       date: e.date, rest: isRestDay(e), trained: lifts.length > 0 || walkKm > 0 || actMin > 0,
       lifts: lifts, unreadable: [], activities: acts,
-      volume: ev.volume, reps: ev.reps, tut: ev.tut, setCount: ev.setCount,
+      /* A stored evaluation is data from an older version of this app, and the
+         aggregate fields were added after some of them were written: they pass
+         the version gate but have no tut, so tut came through undefined, and
+         `lifts.length * 4 + undefined / 60` made activeMin and kcal NaN. Derive
+         what is missing from the exercises, which are always present, and
+         coerce the rest — nothing read back from storage may be trusted to be
+         a finite number. */
+      volume: numOr0(ev.volume) || lifts.reduce((t, l) => t + numOr0(l.volume), 0),
+      reps: numOr0(ev.reps) || lifts.reduce((t, l) => t + numOr0(l.reps), 0),
+      tut: numOr0(ev.tut) || lifts.reduce((t, l) => t + numOr0(l.tut), 0),
+      setCount: numOr0(ev.setCount) || lifts.reduce((t, l) => t + l.sets.reduce((a, f) => a + numOr0(f.sets), 0), 0),
       walkKm: walkKm, walkMin: Math.round(walkMin), activeMin: Math.round(walkMin + actMin + liftMin),
       kcal: Math.round(WALK_MET * kg * (walkMin / 60) + 5 * kg * (liftMin / 60) + acts.filter(a => !a.passive).reduce((s, a) => s + a.met * kg * (a.minutes / 60), 0)),
       patterns: patterns, muscles: muscles, category: cat(e),
@@ -2823,7 +2861,7 @@ function trainingFor(e) {
   });
 
   const acts = parseActivities(e.otherActivity);
-  const walkKm = e.walkKm || 0;
+  const walkKm = numOr0(e.walkKm);   /* an imported record can hold "5 km" */
 
   /* Minutes of purposeful movement. Walking pace assumed 5 km/h — it is the
      only assumption available, since the log has no walk duration. */
@@ -5114,17 +5152,36 @@ function showTip(html, x, y) {
 }
 const hideTip = () => $('#tip').classList.remove('on');
 
+/* Many fields are written as `<div class="f"><label>Name</label><input ...>`:
+   the label is there on screen but is not bound to the control, so a screen
+   reader announces nothing and tapping the label does not focus the field.
+   Binding them one template at a time is a hundred edits that the next
+   template forgets; this binds whatever is on screen, now and in future. */
+function bindLabels(root) {
+  let auto = 0;
+  (root || document).querySelectorAll('label:not([for])').forEach(lab => {
+    const box = lab.parentElement; if (!box) return;
+    const fields = box.querySelectorAll('input:not([type="hidden"]),select,textarea');
+    if (fields.length !== 1) return;                  /* ambiguous: leave it alone */
+    const el = fields[0];
+    if (el.getAttribute('aria-label')) return;
+    if (!el.id) el.id = 'fld-' + (++auto) + '-' + Math.random().toString(36).slice(2, 7);
+    lab.setAttribute('for', el.id);
+  });
+}
+
 function switchView(v) {
   if ($('#v-entry').classList.contains('on') && v !== 'entry' && typeof flushDraft === 'function') flushDraft();
   $$('#tabs button').forEach(b => b.setAttribute('aria-current', String(b.dataset.v === v)));
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
   window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
   if (v === 'dash') renderDash();
-  if (v === 'log') renderTable();
+  if (v === 'log') { renderTable(); try { updateFilterCount(); } catch (e) { /* not wired yet */ } }
   if (v === 'train') renderTraining();
   if (v === 'nut') renderNutrition();
   if (v === 'med') { renderGoals(); renderRole(); renderMedical(); }
   if (v === 'data') { renderStoreStats(); renderAiSetup(); renderBulkEval(); }
+  try { bindLabels($('#v-' + v)); } catch (e) { /* labelling is never fatal */ }
 }
 
 /* ============================================================
@@ -5166,7 +5223,8 @@ function lineChart(el, cfg) {
   const H = cfg.height || 260, { w } = frame(el, H);
   const P = { t: 14, r: cfg.rightAxis ? 44 : 14, b: 26, l: 40 };
   const iw = w - P.l - P.r, ih = H - P.t - P.b;
-  const all = cfg.series.flatMap(s => s.data.map(d => d.y)).filter(v => v != null);
+  const all = cfg.series.flatMap(s => s.data.map(d => d.y))
+    .filter(v => v != null && typeof v === 'number' && isFinite(v));
   if (!all.length) { mk('text', { x: w / 2, y: H / 2, 'text-anchor': 'middle' }, el).textContent = 'No data in this range'; return; }
   let lo = Math.min.apply(null, all), hi = Math.max.apply(null, all);
   const ticks = niceTicks(lo, hi, 4); lo = ticks[0]; hi = ticks[ticks.length - 1];
@@ -5216,7 +5274,14 @@ function barChart(el, cfg) {
   const P = { t: 14, r: 10, b: 30, l: 38 }, iw = w - P.l - P.r, ih = H - P.t - P.b;
   const vals = cfg.bars.map(b => b.v);
   if (!vals.length) { mk('text', { x: w / 2, y: H / 2, 'text-anchor': 'middle' }, el).textContent = 'No data yet'; return; }
-  const ticks = niceTicks(0, Math.max.apply(null, vals) || 1, 4), hi = ticks[ticks.length - 1];
+  /* Math.max over anything non-finite returns NaN, and `NaN || 1` collapses the
+     scale to 1 — so every real bar was drawn hundreds of times the height of
+     the chart, and .chart has overflow:visible, so they painted over the whole
+     page. Scale from the finite values only, and clamp every bar to the frame:
+     a single bad datum may spoil its own bar and nothing else. */
+  const finite = vals.filter(v => typeof v === 'number' && isFinite(v));
+  const ticks = niceTicks(0, (finite.length ? Math.max.apply(null, finite) : 0) || 1, 4);
+  const hi = ticks[ticks.length - 1];
   const Y = v => P.t + ih - (v / hi) * ih;
   ticks.forEach(t => {
     mk('line', { x1: P.l, x2: P.l + iw, y1: Y(t), y2: Y(t), class: 'grid-l' }, el);
@@ -5224,7 +5289,9 @@ function barChart(el, cfg) {
   });
   const bw = iw / cfg.bars.length, pad = Math.min(6, bw * .22);
   cfg.bars.forEach((b, i) => {
-    const x = P.l + i * bw, h = Math.max(b.v > 0 ? 2 : 0, (b.v / hi) * ih);
+    const v = (typeof b.v === 'number' && isFinite(b.v)) ? b.v : 0;
+    const x = P.l + i * bw;
+    const h = Math.min(ih, Math.max(v > 0 ? 2 : 0, (v / hi) * ih));
     const r = mk('rect', { x: x + pad / 2, y: P.t + ih - h, width: Math.max(1, bw - pad), height: h, rx: 3, fill: b.color || 'var(--teal)' }, el);
     hover(r, '<b>' + esc(b.label) + '</b>' + (b.tip || (cfg.unit ? b.v + ' ' + cfg.unit : b.v)));
     if (i % Math.max(1, Math.ceil(cfg.bars.length / (w < 480 ? 4 : 9))) === 0 || i === cfg.bars.length - 1)
@@ -5552,6 +5619,16 @@ function filtered() {
   });
   return out;
 }
+function updateFilterCount() {
+  const b = $('#fToggle'); if (!b) return;
+  /* the filters live in the DOM, not in State — read them where they are */
+  const ids = ['ffrom', 'fto', 'fgoal', 'fcat', 'fakk', 'fsq', 'fwmin', 'fwmax', 'fkm'];
+  let n = ids.filter(id => { const el = $('#' + id); return el && String(el.value || '').trim() !== ''; }).length;
+  if ($$('#v-log .chip[aria-pressed="true"]').length) n++;
+  const open = $('#filterCard') && $('#filterCard').classList.contains('open');
+  b.textContent = open ? 'Hide filters' : (n ? 'Filters · ' + n : 'Filters');
+}
+
 function renderTable() {
   const rows = filtered();
   $('#logCount').textContent = rows.length + (rows.length === 1 ? ' day' : ' days') +
@@ -5572,7 +5649,7 @@ function renderTable() {
       '<td class="num">' + n1(e.weight) + '</td>' +
       '<td class="num">' + (e.waist != null ? n1(e.waist) : '<span class="muted">—</span>') + '</td>' +
       '<td><span class="pill neutral" style="border-color:' + catColor(cat(e)) + ';color:' + catColor(cat(e)) + '">' + esc(cat(e)) + '</span> ' +
-      '<span class="muted" style="font-size:12.5px">' + esc((e.exerciseType || '').slice(0, 26)) + '</span></td>' +
+      '<span class="muted exname" style="font-size:12.5px">' + esc((e.exerciseType || '').slice(0, 26)) + '</span></td>' +
       '<td class="num">' + (e.walkKm ? n1(e.walkKm) : '<span class="muted">—</span>') + '</td>' +
       '<td class="num">' + (sh != null ? n1(sh) + 'h' : '<span class="muted">—</span>') + '</td>' +
       '<td class="num">' + (nutritionFor(e).hasFood ? Math.round(nutritionFor(e).totals.kcal) : '<span class="muted">—</span>') + '</td>' +
@@ -5839,8 +5916,8 @@ function renderMedical() {
       sec.cols.map(c => '<th>' + c[1] + '</th>').join('') + '<th></th></tr></thead><tbody>' +
       (rows.length ? rows.map((r, i) => '<tr>' + sec.cols.map(c =>
         '<td>' + (c[2]
-          ? '<textarea rows="2" data-med="' + sec.key + '" data-i="' + i + '" data-k="' + c[0] + '">' + esc(r[c[0]] || '') + '</textarea>'
-          : '<input value="' + esc(r[c[0]] || '') + '" data-med="' + sec.key + '" data-i="' + i + '" data-k="' + c[0] + '">') + '</td>').join('') +
+          ? '<textarea rows="2" aria-label="' + esc(c[1] + ', row ' + (i + 1)) + '" data-med="' + sec.key + '" data-i="' + i + '" data-k="' + c[0] + '">' + esc(r[c[0]] || '') + '</textarea>'
+          : '<input aria-label="' + esc(c[1] + ', row ' + (i + 1)) + '" value="' + esc(r[c[0]] || '') + '" data-med="' + sec.key + '" data-i="' + i + '" data-k="' + c[0] + '">') + '</td>').join('') +
         '<td><button class="btn btn-sm btn-danger" data-meddel="' + sec.key + '" data-i="' + i + '">Remove</button></td></tr>').join('')
         : '<tr><td colspan="' + (sec.cols.length + 1) + '"><div class="empty" style="padding:22px"><b>Nothing here yet</b>Add a row to start this section.</div></td></tr>') +
       '</tbody></table></div></div>';
@@ -5851,6 +5928,10 @@ function renderMedical() {
 /* ============================================================================
    NUTRITION — presentation
    ============================================================================ */
+/* which of the food table's columns hold numbers — they were plain text
+   inputs, so a phone offered a letter keyboard for "kcal" */
+const NUMERIC_FOOD_COL = { per: 1, serve: 1, kcal: 1, protein: 1, carbs: 1, sugar: 1, fat: 1, fibre: 1, sodium: 1 };
+
 const MACRO_COLOR = { kcal: 'var(--teal)', protein: 'var(--indigo)', carbs: 'var(--amber)', sugar: 'var(--crimson)', fat: '#7A4FA3', fibre: 'var(--moss)', sodium: 'var(--slate)' };
 
 function latestWeight() {
@@ -5868,7 +5949,7 @@ function renderNutrition() {
   let cov = 0, covN = 0;
   days.forEach(e => {
     const n = nutritionFor(e);
-    MACROS.forEach(m => tot[m] += n.totals[m]);
+    MACROS.forEach(m => tot[m] += numOr0(n.totals && n.totals[m]));
     if (n.coverage != null) { cov += n.coverage; covN++; }
   });
   const avg = m => withFood ? tot[m] / withFood : 0;
@@ -6006,7 +6087,9 @@ function renderFoods() {
     ? '<div class="empty" style="padding:20px"><b>No foods of your own yet</b>Add one above, or from the unrecognised list.</div>'
     : '<table class="med-table"><thead><tr>' + FOOD_COLS.map(c => '<th>' + c[1] + '</th>').join('') + '<th></th></tr></thead><tbody>' +
     own.map((f, i) => hit(f) ? '<tr>' + FOOD_COLS.map(c =>
-      '<td><input style="min-width:' + (c[0] === 'name' || c[0] === 'aliases' ? '150px' : '62px') + '" value="' +
+      '<td><input style="min-width:' + (c[0] === 'name' || c[0] === 'aliases' ? '150px' : '62px') + '"' +
+      (NUMERIC_FOOD_COL[c[0]] ? ' inputmode="decimal"' : '') +
+      ' aria-label="' + esc(c[1] + ' for ' + (f.name || 'this food')) + '" value="' +
       esc(c[0] === 'aliases' ? (f.aliases || []).join(', ') : (f[c[0]] == null ? '' : f[c[0]])) +
       '" data-food="' + i + '" data-k="' + c[0] + '"></td>').join('') +
       '<td><button class="btn btn-sm btn-danger" data-foodel="' + i + '">Remove</button></td></tr>' : '').join('') +
@@ -6480,11 +6563,11 @@ function renderRole() {
 
   h += '<div class="fs-h" style="margin:18px 0 10px"><span class="n">06</span><h4>Decision hierarchy</h4><div class="rule"></div></div>' +
     '<p class="hint" style="margin:0 0 8px">Highest priority first. Used to decide which flag leads the executive summary when several apply.</p>' +
-    '<div class="f"><textarea data-role="hierarchyText" rows="4">' + esc(r.hierarchy.join('\n')) + '</textarea>' +
+    '<div class="f"><textarea data-role="hierarchyText" aria-label="Decision hierarchy, highest priority first, one per line" rows="4">' + esc(r.hierarchy.join('\n')) + '</textarea>' +
     '<span class="hint">One per line.</span></div>';
 
   h += '<div class="fs-h" style="margin:18px 0 10px"><span class="n">07</span><h4>Written brief</h4><div class="rule"></div></div>' +
-    '<div class="f"><textarea data-role="brief" rows="6">' + esc(r.brief) + '</textarea>' +
+    '<div class="f"><textarea data-role="brief" aria-label="Written brief: tone and approach" rows="6">' + esc(r.brief) + '</textarea>' +
     '<span class="hint">Reference text — tone and approach. Shown with the briefing; not executed.</span></div>' +
     '<div class="f" style="margin-top:12px"><label>Disclaimer shown on every briefing</label>' +
     '<textarea data-role="disclaimer" rows="2">' + esc(r.disclaimer) + '</textarea></div>';
@@ -7689,6 +7772,16 @@ function wire() {
   ['#fq', '#ffrom', '#fto', '#fcat', '#fakk', '#fsq', '#fwmin', '#fwmax', '#fkm', '#fgoal'].forEach(s => {
     const el = $(s);
     el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', debounce(() => { State.expanded = null; renderTable(); }));
+  });
+  /* On a phone the ten filters and six chips filled the whole first screen, so
+     Records opened on a search form rather than on your records. The search box
+     stays; the rest folds away behind a count of what is actually set. */
+  const fToggle = $('#fToggle');
+  if (fToggle) fToggle.addEventListener('click', () => {
+    const card = $('#filterCard'), open = !card.classList.contains('open');
+    card.classList.toggle('open', open);
+    fToggle.setAttribute('aria-expanded', String(open));
+    updateFilterCount();
   });
   $('#fReset').addEventListener('click', () => {
     ['#fq', '#ffrom', '#fto', '#fcat', '#fakk', '#fsq', '#fwmin', '#fwmax', '#fkm', '#fgoal'].forEach(s => $(s).value = '');
@@ -9013,6 +9106,7 @@ const Mobile = {
   },
 
   show() {
+    try { bindLabels($('#mshBody')); } catch (e) { /* never fatal */ }
     this.syncSave();
     $('#msheet').classList.add('on');
     document.body.classList.add('msheet-open');
