@@ -8802,7 +8802,8 @@ const Mobile = {
       window.visualViewport.addEventListener('resize', fit);
       window.visualViewport.addEventListener('scroll', fit);
     }
-    $('#mshBody').addEventListener('focusin', ev => this.revealFocus(ev.target));
+    /* every text box in the app, not only the ones inside a sheet */
+    document.addEventListener('focusin', ev => this.revealFocus(ev.target));
     $('#mshBody').addEventListener('input', ev => {
       if (ev.target && ev.target.tagName === 'TEXTAREA') this.grow(ev.target);
     });
@@ -9124,20 +9125,79 @@ const Mobile = {
     const vv = window.visualViewport, panel = $('#msheet .panel');
     if (!panel) return;
     if (!vv || !$('#msheet').classList.contains('on')) {
-      if (panel) { panel.style.maxHeight = ''; panel.style.bottom = ''; }
+      panel.style.maxHeight = ''; panel.style.bottom = '';
       return;
     }
+    /* iOS reports half-finished sizes while the keyboard animates; acting on
+       one leaves the sheet stranded at the wrong height */
+    if (vv.height < 150) return;
     const hidden = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
     panel.style.bottom = hidden + 'px';
     panel.style.maxHeight = Math.max(220, vv.height - 10) + 'px';
+    /* The sheet has just become shorter. Whatever was being typed into is now
+       very likely below the fold, so put it back on screen. */
+    this.keepVisible(document.activeElement);
   },
 
-  /* whichever field has focus should stay in sight above the keyboard */
+  /* ---------------------------------------------------------------
+     Keep the field you are typing in on the screen.
+
+     The keyboard arrives AFTER the tap, and it takes roughly a third of the
+     screen with it. Handling this only on focus is too early: the viewport has
+     not shrunk yet, so there is nothing to correct, and the field drops out of
+     sight a moment later. It has to be re-checked when the viewport changes.
+     --------------------------------------------------------------- */
+  scrollerFor(el) {
+    for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (/(auto|scroll)/.test(cs.overflowY) && n.scrollHeight > n.clientHeight + 1) return n;
+    }
+    return null;                      /* null means scroll the page itself */
+  },
+
+  keepVisible(el) {
+    if (!el || !el.getBoundingClientRect) return;
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag !== 'input' && tag !== 'textarea' && tag !== 'select' && !el.isContentEditable) return;
+
+    const vv = window.visualViewport;
+    const viewTop = vv ? vv.offsetTop : 0;
+    let viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    /* the bottom tab bar is fixed over the page, though not over the sheet */
+    if (!(el.closest && el.closest('#msheet'))) {
+      const nav = $('#mtabs');
+      if (nav && getComputedStyle(nav).display !== 'none')
+        viewBottom -= nav.getBoundingClientRect().height;
+    }
+    const margin = 14;
+    const room = viewBottom - viewTop;
+    const r = el.getBoundingClientRect();
+
+    let delta = 0;
+    if (r.height + margin * 2 > room) {
+      delta = r.top - viewTop - margin;          /* taller than the gap: show its top */
+    } else if (r.bottom + margin > viewBottom) {
+      delta = r.bottom + margin - viewBottom;
+    } else if (r.top - margin < viewTop) {
+      delta = r.top - margin - viewTop;
+    }
+    if (!delta) return;
+
+    const scroller = this.scrollerFor(el);
+    if (!scroller) { window.scrollBy(0, delta); return; }
+    const before = scroller.scrollTop;
+    scroller.scrollTop = before + delta;
+    const moved = scroller.scrollTop - before;
+    /* the scroller may already be at its end; the page takes the remainder */
+    if (Math.abs(moved - delta) > 1) window.scrollBy(0, delta - moved);
+  },
+
+  /* the keyboard animates, so check again once it has settled */
   revealFocus(el) {
-    if (!el || !$('#msheet').classList.contains('on')) return;
-    setTimeout(() => {
-      try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* older Safari */ }
-    }, 220);
+    if (!el) return;
+    this.keepVisible(el);
+    setTimeout(() => this.keepVisible(el), 120);
+    setTimeout(() => this.keepVisible(el), 400);
   },
 
   /* a fixed 3-row textarea clipped whatever you were halfway through typing */
@@ -9160,7 +9220,10 @@ const Mobile = {
          there was no way to bring it back, which is the cursor "disappearing".
          Past the cap the field has to scroll inside itself. */
       t.style.overflowY = (t.scrollHeight > want + 1) ? 'auto' : 'hidden';
-      if (t === document.activeElement) this.keepCaret(t, t.offsetHeight - before);
+      if (t === document.activeElement) {
+        this.keepCaret(t, t.offsetHeight - before);
+        this.keepVisible(t);
+      }
     });
   },
 
