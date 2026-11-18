@@ -3724,14 +3724,29 @@ const AI = {
     return 'no proxy address set';
   },
 
-  headers() {
-    if (this.cfg.mode === 'proxy') return { 'content-type': 'application/json' };
+  /* Async because proxy mode attaches a Firebase ID token, and minting one may
+     need a refresh round-trip. Every call site already sits in an async
+     function, so they simply await it. */
+  async headers() {
+    if (this.cfg.mode === 'proxy') {
+      const h = { 'content-type': 'application/json' };
+      /* The proxy holds the Anthropic key, so the only thing it needs from us
+         is proof of who is calling. Without this the endpoint is open to
+         anyone who learns its address, and they spend your credits. The token
+         is short-lived and refreshes itself, unlike an API key. */
+      try {
+        if (typeof Account !== 'undefined' && Account.signedIn) {
+          h['authorization'] = 'Bearer ' + (await Account.token());
+        }
+      } catch (e) { /* proxy will answer 401; surfaced as a normal AI error */ }
+      return h;
+    }
     return {
       'content-type': 'application/json',
       'x-api-key': this.cfg.key,
       'anthropic-version': ANTHROPIC_VERSION,
-      /* Required for browser calls. The key is the user's own and stays in
-         their own browser — it is never written to the data file or the repo. */
+      /* Required for browser calls. The key is the user's own; see the storage
+         note in renderAiSetup() for where it is kept. */
       'anthropic-dangerous-direct-browser-access': 'true'
     };
   },
@@ -3745,7 +3760,7 @@ const AI = {
     if (this.models) return this.models;
     if (!this.enabled) return AI_FALLBACK_MODELS;
     try {
-      const r = await fetch(this.endpoint('/v1/models?limit=40'), { headers: this.headers() });
+      const r = await fetch(this.endpoint('/v1/models?limit=40'), { headers: await this.headers() });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       const list = (j.data || []).map(m => ({ id: m.id, label: m.display_name || m.id }));
@@ -3779,7 +3794,7 @@ const AI = {
        refuses the parameter. */
     body.thinking = { type: 'disabled' };
     let r = await fetch(this.endpoint('/v1/messages'), {
-      method: 'POST', headers: this.headers(), body: JSON.stringify(body)
+      method: 'POST', headers: await this.headers(), body: JSON.stringify(body)
     });
     if (r.status === 400) {
       const probe = await r.clone().json().catch(() => null);
@@ -3787,7 +3802,7 @@ const AI = {
       if (/thinking/i.test(m)) {
         delete body.thinking;
         r = await fetch(this.endpoint('/v1/messages'), {
-          method: 'POST', headers: this.headers(), body: JSON.stringify(body)
+          method: 'POST', headers: await this.headers(), body: JSON.stringify(body)
         });
       }
     }
@@ -4030,7 +4045,7 @@ async function aiStream(system, user, maxTokens, opts, onText) {
     stream: true
   };
   let r = await fetch(AI.endpoint('/v1/messages'), {
-    method: 'POST', headers: AI.headers(), body: JSON.stringify(body)
+    method: 'POST', headers: await AI.headers(), body: JSON.stringify(body)
   });
   if (r.status === 400) {
     const probe = await r.clone().json().catch(() => null);
@@ -4038,7 +4053,7 @@ async function aiStream(system, user, maxTokens, opts, onText) {
     if (/thinking/i.test(msg)) {
       delete body.thinking;
       r = await fetch(AI.endpoint('/v1/messages'), {
-        method: 'POST', headers: AI.headers(), body: JSON.stringify(body)
+        method: 'POST', headers: await AI.headers(), body: JSON.stringify(body)
       });
     }
   }
@@ -5008,7 +5023,7 @@ async function lookupNutrition(entry, opts) {
     messages: [{ role: 'user', content: user }],
     tools: [webSearchTool()]
   };
-  const r = await fetch(AI.endpoint('/v1/messages'), { method: 'POST', headers: AI.headers(), body: JSON.stringify(body) });
+  const r = await fetch(AI.endpoint('/v1/messages'), { method: 'POST', headers: await AI.headers(), body: JSON.stringify(body) });
   if (!r.ok) {
     let msg = 'HTTP ' + r.status;
     try { const j = await r.json(); if (j.error && j.error.message) msg = j.error.message; } catch (e) { /* keep */ }
@@ -6903,12 +6918,12 @@ function renderAiSetup() {
   if (c.mode === 'direct') {
     h += '<div class="f" style="margin-top:12px"><label for="aiKey">Anthropic API key</label>' +
       '<input id="aiKey" type="password" autocomplete="off" placeholder="sk-ant-…" value="' + esc(c.key) + '">' +
-      '<span class="hint">Stored in this browser only. It is never written into your data file and never goes near the repository — so it is not published by GitHub Pages. Anyone with access to this device or its dev tools can read it, so use a key you can rotate, and set a spend limit in the Anthropic console.</span></div>';
+      '<span class="hint">Never goes near the repository, so it is not published by GitHub Pages. It <strong>is</strong> saved with your account so your other devices can use it, which means it travels into your data file and into any backup you export — treat an export like the key itself. Anyone with access to a signed-in device or its dev tools can read it, so use a key you can rotate, and set a spend limit in the Anthropic console. Proxy mode avoids all of this.</span></div>';
   }
   if (c.mode === 'proxy') {
     h += '<div class="f" style="margin-top:12px"><label for="aiProxy">Proxy address</label>' +
       '<input id="aiProxy" placeholder="https://your-function.example.com" value="' + esc(c.proxyUrl) + '">' +
-      '<span class="hint">Your endpoint holds the key and forwards to the Anthropic API. This is the right shape once more than one person uses the app — it keeps the key off every device.</span></div>';
+      '<span class="hint">Your endpoint holds the key and forwards to the Anthropic API, so the key never reaches a browser, never enters your data file and never lands in a backup. The address is saved with your account, so you set it once and every device you sign in on just works. Calls carry your signed-in identity, so only your account can spend the credits — the endpoint must verify that token.</span></div>';
   }
 
   if (c.mode !== 'off') {
@@ -9362,11 +9377,16 @@ async function init() {
   switchView(landing);
   renderSaveState();
   renderStoreStats();
+  /* The account document is loaded by this point, so adopt any AI settings
+     saved against the account BEFORE painting the panel. renderAiSetup() reads
+     AI.cfg once, at render time, and never repaints: run it first and a fresh
+     browser shows an empty key field and "no API key entered on this device"
+     even though the settings arrive moments later. Worse, the input handler
+     saves whatever the field holds, so touching that empty panel wrote blanks
+     back over the account config and broke every other device. */
+  try { AI.adoptFromDoc(); } catch (e) { /* device settings stand */ }
   renderAiSetup();
   renderBulkEval();
-  /* The account document is loaded by this point: adopt any AI settings saved
-     against the account, and hide anything this role should not see. */
-  try { AI.adoptFromDoc(); } catch (e) { /* device settings stand */ }
   try { applyRoleVisibility(); } catch (e) { /* fail open, never lock the UI */ }
 
   if (!State.entries.length && !$('#banner').dataset.sticky)
